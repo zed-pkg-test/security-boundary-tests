@@ -1,7 +1,20 @@
 [package]
-name = "zed-pkg-test/security-boundary-tests"
+org = "zed-pkg-test"
+name = "security-boundary-tests"
 version = "0.1.0"
 type = "test-suite"
+description = "Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests."
+license = "MIT"
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/zed-pkg-test/security-boundary-tests"
+
+[install]
+dir = ".vendor/.zed"
+
+[publish]
+exclude = ["artifacts/**", "vendor/**", ".vendor/**", ".env", ".env.*", "__pycache__/**", ".pytest_cache/**"]
 
 [develop]
 commands = [
