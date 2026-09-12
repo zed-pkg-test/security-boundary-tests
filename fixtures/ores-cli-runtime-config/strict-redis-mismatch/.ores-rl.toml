@@ -1,0 +1,6 @@
+version = 1
+mode = "server"
+backend = "redis"
+strict = true
+fail_closed = true
+zero_overshoot = true

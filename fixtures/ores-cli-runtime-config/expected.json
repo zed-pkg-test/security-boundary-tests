@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "consumer": "ORESoftware/ores-cli",
+  "audit": "runtime-config-consumption",
+  "cases": [
+    {"name":"runtime-consumed","expectedClass":"runtime-consumed-static","expectedCode":"runtime-config-consumed-static"},
+    {"name":"production-unproven","expectedClass":"production-reference-unproven","expectedCode":"runtime-config-production-reference-unproven"},
+    {"name":"ci-only","expectedClass":"ci-admitted-only","expectedCode":"runtime-config-ci-admitted-only"},
+    {"name":"declared-only","expectedClass":"declared-only","expectedCode":"runtime-config-declared-unproven"},
+    {"name":"strict-redis-mismatch","expectedClass":"runtime-mismatch","expectedCode":"runtime-config-strict-redis-source-mismatch"},
+    {"name":"strict-redis-bound","expectedClass":"runtime-consumed-static","expectedCode":"runtime-config-consumed-static"}
+  ]
+}
