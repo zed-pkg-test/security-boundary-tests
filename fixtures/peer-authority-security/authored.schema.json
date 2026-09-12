@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zed-pkg-test.invalid/security/authority-boundary.schema.json",
+  "$defs": {
+    "AuthorityBoundary": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "AuthorityBoundary",
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "owner": { "type": "string" }
+      },
+      "required": ["repository", "enabled"],
+      "unevaluatedProperties": false
+    }
+  }
+}
