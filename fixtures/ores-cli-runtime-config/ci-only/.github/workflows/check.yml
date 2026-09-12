@@ -1,0 +1,9 @@
+name: fixture-only
+on: [workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: cat .ores-otel.toml
