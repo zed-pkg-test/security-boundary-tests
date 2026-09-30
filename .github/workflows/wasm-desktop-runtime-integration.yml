@@ -34,7 +34,7 @@ jobs:
           git -C "$RUNNER_TEMP/wasmx-daemon" checkout d8999b344ff5fdb703fb037a4dffeeda60baed36
 
           git clone https://github.com/wasm-xprs/wasmx-desktop-cli.git "$RUNNER_TEMP/wasmx-cli"
-          git -C "$RUNNER_TEMP/wasmx-cli" checkout 12d6403a07a72002712ca185aa51c60fed761465
+          git -C "$RUNNER_TEMP/wasmx-cli" checkout 2657f4596fa898e29aab8afd85e7d7102f5ed281
 
           git clone https://github.com/lunatic-lorry/ll-desktop-daemon.git "$RUNNER_TEMP/ll-daemon"
           git -C "$RUNNER_TEMP/ll-daemon" checkout 49a883262728cef5429c570832af9b506ae9279d
@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-daemon/Cargo.toml"
-          cargo build --manifest-path "$RUNNER_TEMP/wasmx-cli/Cargo.toml"
+          cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-cli/Cargo.toml"
 
       - name: Generate valid wasmx-v1 guest fixture
         run: |
