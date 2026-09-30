@@ -34,7 +34,7 @@ jobs:
           git -C "$RUNNER_TEMP/wasmx-daemon" checkout d8999b344ff5fdb703fb037a4dffeeda60baed36
 
           git clone https://github.com/wasm-xprs/wasmx-desktop-cli.git "$RUNNER_TEMP/wasmx-cli"
-          git -C "$RUNNER_TEMP/wasmx-cli" checkout 748de62e320b64b9659848db990d52a9420f9194
+          git -C "$RUNNER_TEMP/wasmx-cli" checkout 12d6403a07a72002712ca185aa51c60fed761465
 
           git clone https://github.com/lunatic-lorry/ll-desktop-daemon.git "$RUNNER_TEMP/ll-daemon"
           git -C "$RUNNER_TEMP/ll-daemon" checkout d04bdf554ad2d75ff8dcd21f79d2dd1b7aedc42f
