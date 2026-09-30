@@ -44,9 +44,6 @@ jobs:
           git clone https://github.com/lunatic-lorry/ll-desktop-cli.git "$RUNNER_TEMP/ll-cli"
           git -C "$RUNNER_TEMP/ll-cli" checkout 99773d6c378a0bf8a112c7c7b8f9520eb3c2b8b8
 
-          git clone https://github.com/lunatic-lorry/ll-lambdas.git "$RUNNER_TEMP/ll-lambdas"
-          git -C "$RUNNER_TEMP/ll-lambdas" checkout bea10c23e58d0c0b2bff5bc598c5f094496d9e13
-
       - name: Build locked desktop daemons and CLIs
         run: |
           set -euo pipefail
@@ -55,12 +52,43 @@ jobs:
           cargo build --locked --manifest-path "$RUNNER_TEMP/ll-daemon/Cargo.toml"
           cargo build --locked --manifest-path "$RUNNER_TEMP/ll-cli/Cargo.toml"
 
-      - name: Build real Lunatic guest for wasm32-wasip1
+      - name: Build independent Lunatic mailbox fixture for wasm32-wasip1
         run: |
           set -euo pipefail
-          cargo build --release --target wasm32-wasip1 --manifest-path "$RUNNER_TEMP/ll-lambdas/Cargo.toml"
-          LL_MODULE="$(find "$RUNNER_TEMP/ll-lambdas/target/wasm32-wasip1/release" -maxdepth 1 -type f -name '*.wasm' -print -quit)"
-          test -n "$LL_MODULE"
+          mkdir -p "$RUNNER_TEMP/ll-fixture/src"
+          cat >"$RUNNER_TEMP/ll-fixture/Cargo.toml" <<'EOF'
+          [package]
+          name = "ll-test-fixture"
+          version = "0.0.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          lunatic = "=0.14.1"
+          EOF
+          cat >"$RUNNER_TEMP/ll-fixture/src/main.rs" <<'EOF'
+          use lunatic::Mailbox;
+          use std::io::{self, Write};
+
+          #[lunatic::main]
+          fn main(mailbox: Mailbox<Vec<u8>>) {
+              let payload = match mailbox.try_receive() {
+                  Ok(payload) => payload,
+                  Err(_) => std::process::exit(65),
+              };
+              let mut stdout = io::stdout();
+              if stdout.write_all(&payload).is_err() {
+                  std::process::exit(74);
+              }
+              if stdout.flush().is_err() {
+                  std::process::exit(74);
+              }
+          }
+          EOF
+          cargo generate-lockfile --manifest-path "$RUNNER_TEMP/ll-fixture/Cargo.toml"
+          cargo build --locked --release --target wasm32-wasip1 --manifest-path "$RUNNER_TEMP/ll-fixture/Cargo.toml"
+          LL_MODULE="$RUNNER_TEMP/ll-fixture/target/wasm32-wasip1/release/ll_test_fixture.wasm"
+          test -s "$LL_MODULE"
           cp "$LL_MODULE" "$RUNNER_TEMP/ll-module-a.wasm"
           cp "$LL_MODULE" "$RUNNER_TEMP/ll-module-b.wasm"
           # Add a valid custom section so module-b remains valid Wasm but has different bytes.
