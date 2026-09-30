@@ -87,7 +87,13 @@ jobs:
           EOF
           cargo generate-lockfile --manifest-path "$RUNNER_TEMP/ll-fixture/Cargo.toml"
           cargo build --locked --release --target wasm32-wasip1 --manifest-path "$RUNNER_TEMP/ll-fixture/Cargo.toml"
-          LL_MODULE="$RUNNER_TEMP/ll-fixture/target/wasm32-wasip1/release/ll_test_fixture.wasm"
+          mapfile -t ll_modules < <(find "$RUNNER_TEMP/ll-fixture/target/wasm32-wasip1/release" -maxdepth 1 -type f -name '*.wasm' -print | sort)
+          if [ "${#ll_modules[@]}" -ne 1 ]; then
+            echo "expected exactly one Lunatic fixture Wasm artifact, found ${#ll_modules[@]}" >&2
+            printf '  %s\n' "${ll_modules[@]}" >&2
+            exit 1
+          fi
+          LL_MODULE="${ll_modules[0]}"
           test -s "$LL_MODULE"
           cp "$LL_MODULE" "$RUNNER_TEMP/ll-module-a.wasm"
           cp "$LL_MODULE" "$RUNNER_TEMP/ll-module-b.wasm"
@@ -126,7 +132,10 @@ jobs:
                           drop
                           i32.const 0))"#,
               )?;
-              std::fs::write(std::env::args().nth(1).expect("output path"), wasm)?;
+              let Some(output) = std::env::args().nth(1) else {
+                  anyhow::bail!("output path is required");
+              };
+              std::fs::write(output, wasm)?;
               return Ok(());
           }
           EOF
@@ -283,8 +292,12 @@ jobs:
       - name: Stop daemons
         if: always()
         run: |
-          kill "$(cat "$RUNNER_TEMP/wasmx-daemon.pid")" 2>/dev/null || true
-          kill "$(cat "$RUNNER_TEMP/ll-daemon.pid")" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/wasmx-daemon.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/wasmx-daemon.pid")" 2>/dev/null || true
+          fi
+          if [ -f "$RUNNER_TEMP/ll-daemon.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/ll-daemon.pid")" 2>/dev/null || true
+          fi
 
       - name: Dump daemon logs on failure
         if: failure()
