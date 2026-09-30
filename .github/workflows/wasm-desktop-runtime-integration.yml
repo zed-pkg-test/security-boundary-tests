@@ -1,0 +1,128 @@
+name: WASM desktop runtime integration
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/wasm-desktop-runtime-integration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-desktop-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.96 --profile minimal --component clippy,rustfmt
+          rustup default 1.96
+
+      - name: Fetch exact runtime revisions
+        run: |
+          set -euo pipefail
+          git clone https://github.com/wasm-xprs/wasmx-desktop-daemon.git "$RUNNER_TEMP/wasmx-daemon"
+          git -C "$RUNNER_TEMP/wasmx-daemon" checkout d8999b344ff5fdb703fb037a4dffeeda60baed36
+
+          git clone https://github.com/wasm-xprs/wasmx-desktop-cli.git "$RUNNER_TEMP/wasmx-cli"
+          git -C "$RUNNER_TEMP/wasmx-cli" checkout 748de62e320b64b9659848db990d52a9420f9194
+
+          git clone https://github.com/lunatic-lorry/ll-desktop-daemon.git "$RUNNER_TEMP/ll-daemon"
+          git -C "$RUNNER_TEMP/ll-daemon" checkout d04bdf554ad2d75ff8dcd21f79d2dd1b7aedc42f
+
+      - name: Build wasm-xprs daemon and CLI
+        run: |
+          set -euo pipefail
+          cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-daemon/Cargo.toml"
+          cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-cli/Cargo.toml"
+
+      - name: Launch wasm-xprs daemon on canonical unique port
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/wasmx-home"
+          mkdir -p "$HOME"
+          cd "$RUNNER_TEMP/wasmx-daemon"
+          WASMX_DESKTOP_ADDR=127.0.0.1:8766 \
+          WASMX_ARTIFACT_ROOT="$HOME/.wasm-xprs/artifacts" \
+          WASMX_DESKTOP_TOKEN_FILE="$HOME/.wasm-xprs/daemon/token" \
+            target/debug/wasmx-desktop-daemon >"$RUNNER_TEMP/wasmx-daemon.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/wasmx-daemon.pid"
+
+          for _ in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8766/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/wasmx-daemon.log"
+          exit 1
+
+      - name: Prove port, token, auth, CLI doctor, and immutable deploy semantics
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/wasmx-home"
+          CLI="$RUNNER_TEMP/wasmx-cli/target/debug/wasmx-desktop-cli"
+          TOKEN_FILE="$HOME/.wasm-xprs/daemon/token"
+
+          test "$(stat -c '%a' "$TOKEN_FILE")" = "600"
+
+          if curl --fail --silent --connect-timeout 1 http://127.0.0.1:8765/healthz >/dev/null 2>&1; then
+            echo 'unexpected listener remains on 8765' >&2
+            exit 1
+          fi
+
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8766/v1/status)"
+          test "$status" = "401"
+
+          "$CLI" --url http://127.0.0.1:8766 doctor
+
+          printf '\x00\x61\x73\x6d\x01\x00\x00\x00' >"$RUNNER_TEMP/module-a.wasm"
+          printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x00\x01\x00' >"$RUNNER_TEMP/module-b.wasm"
+
+          "$CLI" --url http://127.0.0.1:8766 deploy \
+            --tenant test-tenant \
+            --deployment generation-1 \
+            --module "$RUNNER_TEMP/module-a.wasm"
+
+          "$CLI" --url http://127.0.0.1:8766 deploy \
+            --tenant test-tenant \
+            --deployment generation-1 \
+            --module "$RUNNER_TEMP/module-a.wasm"
+
+          if "$CLI" --url http://127.0.0.1:8766 deploy \
+            --tenant test-tenant \
+            --deployment generation-1 \
+            --module "$RUNNER_TEMP/module-b.wasm"; then
+            echo 'immutable generation unexpectedly accepted byte drift' >&2
+            exit 1
+          fi
+
+          "$CLI" --url http://127.0.0.1:8766 inspect \
+            --tenant test-tenant \
+            --deployment generation-1
+
+      - name: Assert CLI default is aligned with daemon port
+        run: |
+          set -euo pipefail
+          grep -F 'default = "http://127.0.0.1:8766"' "$RUNNER_TEMP/wasmx-cli/.cli-flags.toml"
+
+      - name: Re-prove Lunatic token boundary on independent test-org runner
+        run: |
+          set -euo pipefail
+          cargo fmt --all --manifest-path "$RUNNER_TEMP/ll-daemon/Cargo.toml" -- --check
+          cargo test --all-targets --manifest-path "$RUNNER_TEMP/ll-daemon/Cargo.toml"
+          cargo clippy --all-targets --manifest-path "$RUNNER_TEMP/ll-daemon/Cargo.toml" -- -D warnings
+
+      - name: Dump daemon log on failure
+        if: failure()
+        run: |
+          cat "$RUNNER_TEMP/wasmx-daemon.log" 2>/dev/null || true
