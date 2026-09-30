@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-daemon/Cargo.toml"
-          cargo build --locked --manifest-path "$RUNNER_TEMP/wasmx-cli/Cargo.toml"
+          cargo build --manifest-path "$RUNNER_TEMP/wasmx-cli/Cargo.toml"
 
       - name: Launch wasm-xprs daemon on canonical unique port
         run: |
@@ -67,6 +67,8 @@ jobs:
           exit 1
 
       - name: Prove port, token, auth, CLI doctor, and immutable deploy semantics
+        env:
+          WASMX_DESKTOP_FLAGS_CONFIG: ${{ runner.temp }}/wasmx-cli/.cli-flags.toml
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/wasmx-home"
@@ -83,22 +85,22 @@ jobs:
           status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8766/v1/status)"
           test "$status" = "401"
 
-          "$CLI" --url http://127.0.0.1:8766 doctor
+          "$CLI" doctor
 
           printf '\x00\x61\x73\x6d\x01\x00\x00\x00' >"$RUNNER_TEMP/module-a.wasm"
           printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x00\x01\x00' >"$RUNNER_TEMP/module-b.wasm"
 
-          "$CLI" --url http://127.0.0.1:8766 deploy \
+          "$CLI" deploy \
             --tenant test-tenant \
             --deployment generation-1 \
             --module "$RUNNER_TEMP/module-a.wasm"
 
-          "$CLI" --url http://127.0.0.1:8766 deploy \
+          "$CLI" deploy \
             --tenant test-tenant \
             --deployment generation-1 \
             --module "$RUNNER_TEMP/module-a.wasm"
 
-          if "$CLI" --url http://127.0.0.1:8766 deploy \
+          if "$CLI" deploy \
             --tenant test-tenant \
             --deployment generation-1 \
             --module "$RUNNER_TEMP/module-b.wasm"; then
@@ -106,7 +108,7 @@ jobs:
             exit 1
           fi
 
-          "$CLI" --url http://127.0.0.1:8766 inspect \
+          "$CLI" inspect \
             --tenant test-tenant \
             --deployment generation-1
 
