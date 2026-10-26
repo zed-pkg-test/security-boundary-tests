@@ -1,0 +1,12 @@
+[package]
+name = "orestra-docs-gates"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde_json = "1"
+
+[[bin]]
+name = "orestra-docs-gates"
+path = "tools/docs-checks/main.rs"

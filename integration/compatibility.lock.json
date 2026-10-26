@@ -1,0 +1,24 @@
+{
+  "format": "orestra.integration-lock/v1",
+  "created": "2026-10-19",
+  "contractVersion": "orestra.io/v1alpha1",
+  "releaseStatus": "pre-alpha-source-only",
+  "revisions": {
+    "orestra": "bc0630bc71e6a51ad30e9e266d9e37475d108b14",
+    "orestra-api": "126743aa56143e172274e42482bb80bc049596c3",
+    "orestra-cli": "616666162f664d2c1f0861900c0c493b9e1cd4ca",
+    "orestra-sdk": "2fa0a9c6741ea0b917f3d43598f298bba39d8a74",
+    "orestra-state": "4006c5986d6edd4f98007b4c2adfc18f9b2eeea5",
+    "orestra-drivers": "c996f10bad240d80c6d1042e329bb7c3d2520ab3",
+    "orestra-ui": "bf3b663bc2379e6b2eb63ba0ac74b7d3b6988df8",
+    "orestra-conformance": "7ef819f5a08cc6f1e382709a35a74b6c604cf322",
+    "orestra-website": "a793054243e7ab7ff3c36d673ed331cc50918d19"
+  },
+  "verification": {
+    "sourceChecks": "passed",
+    "referenceOracles": "passed",
+    "nativeOreslangCompile": "not_verified",
+    "multiNodeRuntime": "not_implemented",
+    "liveOCI": "not_implemented"
+  }
+}
