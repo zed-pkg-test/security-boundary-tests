@@ -1,0 +1,76 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.java",
+  "allowed_prs": [
+    1668
+  ],
+  "commands": [
+    {
+      "argv": [
+        "mvn",
+        "-B",
+        "-ntp",
+        "-Dores.runtime.carriers=native",
+        "verify"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800
+    },
+    {
+      "argv": [
+        "mvn",
+        "-B",
+        "-ntp",
+        "-Pnative-aot",
+        "-DskipTests",
+        "package"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800
+    },
+    {
+      "argv": [
+        "mvn",
+        "-B",
+        "-ntp",
+        "-Pnative-hybrid",
+        "-DskipTests",
+        "package"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800
+    },
+    {
+      "argv": [
+        "mvn",
+        "-B",
+        "-ntp",
+        "-Pnative-isolate",
+        "-DskipTests",
+        "package"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800
+    },
+    {
+      "argv": [
+        "./target/ores-aot",
+        "--mode=aot",
+        "--platform=linux",
+        "examples/together.ores"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300
+    },
+    {
+      "argv": [
+        "./target/ores-hybrid",
+        "--mode=hybrid",
+        "--platform=linux",
+        "examples/together.ores"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300
+    }
+  ]
+}

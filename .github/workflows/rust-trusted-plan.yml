@@ -1,0 +1,22 @@
+name: Rust trusted plan runner
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trusted-plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format
+        run: cargo fmt --manifest-path tools/trusted-plan/Cargo.toml -- --check
+      - name: Clippy
+        run: cargo clippy --manifest-path tools/trusted-plan/Cargo.toml --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --manifest-path tools/trusted-plan/Cargo.toml --all-targets --verbose

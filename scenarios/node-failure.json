@@ -1,0 +1,41 @@
+{
+  "name": "node failure and scheduler reassignment",
+  "steps": [
+    {
+      "operation": "create_node",
+      "name": "a",
+      "cpuMillis": 2000,
+      "memoryBytes": 2147483648
+    },
+    {
+      "operation": "create_node",
+      "name": "b",
+      "cpuMillis": 2000,
+      "memoryBytes": 2147483648
+    },
+    {
+      "operation": "deploy",
+      "name": "web",
+      "replicas": 2,
+      "cpuMillis": 500,
+      "memoryBytes": 134217728
+    },
+    {
+      "operation": "reconcile"
+    },
+    {
+      "operation": "node_failure",
+      "name": "a"
+    },
+    {
+      "operation": "leader_change"
+    },
+    {
+      "operation": "reconcile"
+    },
+    {
+      "operation": "assert",
+      "invariant": "no active node overcommit; stale epoch cannot commit"
+    }
+  ]
+}

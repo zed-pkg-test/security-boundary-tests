@@ -1,0 +1,17 @@
+{
+  "name": "list-watch gap and compaction",
+  "steps": [
+    {
+      "operation": "assert",
+      "invariant": "list carries consistent revision"
+    },
+    {
+      "operation": "assert",
+      "invariant": "watch(after=list_revision) includes later updates"
+    },
+    {
+      "operation": "assert",
+      "invariant": "compacted cursors require relist"
+    }
+  ]
+}

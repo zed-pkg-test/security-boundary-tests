@@ -1,16 +1,9 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra Conformance
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+Reproducible failure-oriented conformance scenarios and executable local reference models. All tracked reference and verifier source in this repository is Rust; Orestra itself targets **Oreslang**.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
+Run `cargo test --all-targets`. The separately hardened trusted-plan runner remains in `tools/trusted-plan` and is tested with its own Cargo manifest.
 
-## Run
+Current scope includes deterministic reconciliation, bin packing, capacity invariants, fencing epochs, unknown node workloads, scale up/down, a 500-step seeded state-machine fault campaign, native-source runner boundary tests, and private exact-tree carrier provenance/authorization tests. See `docs/TEST_MATRIX.md` for unimplemented live cluster and security coverage.
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
-```
-
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
-
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+Tracked Python source files are not accepted. The carrier keeps its source-free pre-check before checkout and executes repository verifier/test-plan logic only after authorization.

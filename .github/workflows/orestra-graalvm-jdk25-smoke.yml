@@ -1,0 +1,49 @@
+name: Orestra GraalVM JDK25 runner preflight
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - ci-mirror/orestra-graalvm-jdk25-smoke-20261020
+  pull_request:
+    paths:
+      - '.github/workflows/orestra-graalvm-jdk25-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  graalvm-jdk25-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+      - name: Validate funded runner and compiler toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$JAVA_HOME/bin/java"
+          test -x "$JAVA_HOME/bin/javac"
+          java -version
+          javac --version
+          mvn -version
+          cat > /tmp/OrestraRunnerPreflight.java <<'JAVA'
+          public final class OrestraRunnerPreflight {
+              public static void main(String[] args) {
+                  if (Runtime.version().feature() != 25) {
+                      throw new AssertionError("GraalVM JDK25 required");
+                  }
+                  System.out.println("GRAALVM_JDK25_RUNNER_PREFLIGHT_PASS");
+              }
+          }
+          JAVA
+          "$JAVA_HOME/bin/javac" /tmp/OrestraRunnerPreflight.java
+          "$JAVA_HOME/bin/java" -cp /tmp OrestraRunnerPreflight
+      - name: Explicit native gate limitation
+        run: |
+          echo "Runner preflight only. No Oreslang guest source was compiled."
+          echo "Native proof requires exact-source mirror + OrestraBootstrapNativeHttpTest."

@@ -1,0 +1,68 @@
+name: LLVM PR818 no-Python policy exact-blob
+on:
+  push:
+    branches:
+      - ci/llvm-pr818-no-python-policy-20261021
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify exact current source checker blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'source-pr-head=c678bd595e01f89bcbb4517bc4520797027c9fb3'
+          test "$(git hash-object carrier/llvm-pr818/check_no_python.rs)" = "7b5e0f6d02db5082cc052eedde9c069175a61b84"
+          test "$(git hash-object carrier/llvm-pr818/no-python-check/Cargo.toml)" = "4dfd1ce480a85f7a3426cf979981c8a0cc2b47c5"
+          test "$(git hash-object carrier/llvm-pr818/no-python-check/src/main.rs)" = "d7830e9ed74a5a554726f58a36485554864a8e7e"
+      - name: Compile and run legacy Rust policy tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustc --edition=2021 -D warnings --test carrier/llvm-pr818/check_no_python.rs -o /tmp/check-no-python-tests
+          /tmp/check-no-python-tests
+      - name: Run current Cargo policy gate checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path carrier/llvm-pr818/no-python-check/Cargo.toml -- --check
+          cargo clippy --manifest-path carrier/llvm-pr818/no-python-check/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path carrier/llvm-pr818/no-python-check/Cargo.toml
+          cargo build --manifest-path carrier/llvm-pr818/no-python-check/Cargo.toml
+      - name: Synthetic allow and deny matrix for current scanner
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$PWD/carrier/llvm-pr818/no-python-check/target/debug/no-python-check"
+          rm -rf /tmp/policy-allow /tmp/policy-deny-extensionless /tmp/policy-deny-wrapper
+          for root in /tmp/policy-allow /tmp/policy-deny-extensionless /tmp/policy-deny-wrapper; do
+            mkdir -p "$root"
+            git -C "$root" init -q
+            git -C "$root" config user.email ci@example.invalid
+            git -C "$root" config user.name CI
+          done
+          printf '%s\n' '#!/bin/sh' 'echo rust-only' > /tmp/policy-allow/runner
+          git -C /tmp/policy-allow add runner
+          "$BIN" /tmp/policy-allow
+
+          printf '%s\n' '#!/usr/bin/env python3' 'print("legacy")' > /tmp/policy-deny-extensionless/runner
+          git -C /tmp/policy-deny-extensionless add runner
+          if "$BIN" /tmp/policy-deny-extensionless; then
+            echo 'extensionless Python shebang escaped policy' >&2
+            exit 1
+          fi
+
+          printf '%s\n' 'env MODE=test python3 legacy.py' > /tmp/policy-deny-wrapper/run.sh
+          git -C /tmp/policy-deny-wrapper add run.sh
+          if "$BIN" /tmp/policy-deny-wrapper; then
+            echo 'wrapped Python invocation escaped policy' >&2
+            exit 1
+          fi

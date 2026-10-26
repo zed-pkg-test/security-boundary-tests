@@ -1,0 +1,51 @@
+name: LLVM PR817 actor heap access exact-blob
+on:
+  push:
+    branches:
+      - ci/llvm-pr817-actor-access-20261021
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  actor-access:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify exact private source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'source-pr-head=0c15c0cb7ff238139de470a0793dfd5690efa754'
+          test "$(git hash-object 'carrier/llvm-pr817/src/main/cpp/oreslang/runtime/ActorOwnedI64Heap.c')" = "3036569e187b2e3103c7c773ba7b9b755efc6930"
+          test "$(git hash-object 'carrier/llvm-pr817/src/main/cpp/oreslang/runtime/ActorOwnedI64Heap.h')" = "a433699b14c2746eac0b21666bd02f96cb94caff"
+          test "$(git hash-object 'carrier/llvm-pr817/tests/actor_heap_access_trace_test.c')" = "472397102aeaec5faeaa28fc50179ccbd4d4d461"
+          test "$(git hash-object 'carrier/llvm-pr817/docs/ACTOR_HEAP_ACCESS_EVIDENCE_V1.md')" = "85a03ecf7b5b542a24b56a36017371d8b103ed03"
+      - name: Compile and execute with GCC and Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=carrier/llvm-pr817
+          for compiler in gcc clang; do
+            "$compiler" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -UNDEBUG               -I "$ROOT/src/main/cpp"               "$ROOT/tests/actor_heap_access_trace_test.c"               "$ROOT/src/main/cpp/oreslang/runtime/ActorOwnedI64Heap.c"               -o "/tmp/actor-access-$compiler"
+            timeout 30 "/tmp/actor-access-$compiler" | tee "/tmp/actor-access-$compiler.out"
+            grep -qx 'ACTOR_HEAP_ACCESS_EVIDENCE|scope=native_i64_host_only|result=PASS'               "/tmp/actor-access-$compiler.out"
+          done
+      - name: Address and undefined behavior sanitizers
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=carrier/llvm-pr817
+          clang -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -UNDEBUG             -fno-omit-frame-pointer -fsanitize=address,undefined             -I "$ROOT/src/main/cpp"             "$ROOT/tests/actor_heap_access_trace_test.c"             "$ROOT/src/main/cpp/oreslang/runtime/ActorOwnedI64Heap.c"             -o /tmp/actor-access-sanitized
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1           UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1             timeout 30 /tmp/actor-access-sanitized | tee /tmp/actor-access-sanitized.out
+          grep -qx 'ACTOR_HEAP_ACCESS_EVIDENCE|scope=native_i64_host_only|result=PASS'             /tmp/actor-access-sanitized.out
+      - name: Optimized wipe compile control
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=carrier/llvm-pr817
+          clang -std=c11 -O3 -Wall -Wextra -Wpedantic -Werror -UNDEBUG             -I "$ROOT/src/main/cpp"             "$ROOT/tests/actor_heap_access_trace_test.c"             "$ROOT/src/main/cpp/oreslang/runtime/ActorOwnedI64Heap.c"             -o /tmp/actor-access-o3
+          timeout 30 /tmp/actor-access-o3 > /tmp/actor-access-o3.out
+          grep -qx 'ACTOR_HEAP_ACCESS_EVIDENCE|scope=native_i64_host_only|result=PASS'             /tmp/actor-access-o3.out

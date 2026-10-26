@@ -1,0 +1,22 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.java",
+  "allowed_prs": [
+    1711
+  ],
+  "commands": [
+    {
+      "argv": [
+        "mvn",
+        "-B",
+        "-ntp",
+        "-Dores.runtime.carriers=native",
+        "-Dtest=OrestraBootstrapNativeHttpTest",
+        "-DfailIfNoTests=true",
+        "test"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1500
+    }
+  ]
+}

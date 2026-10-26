@@ -1,0 +1,136 @@
+name: Oreslang exact-tree private carrier
+on:
+  pull_request:
+    paths:
+      - '.github/CODEOWNERS'
+      - '.github/workflows/oreslang-exact-tree-carrier.yml'
+      - 'Cargo.toml'
+      - 'reference/**'
+      - 'scripts/verify-oreslang-private-carrier.rs'
+      - 'scripts/test-oreslang-private-carrier.rs'
+      - 'scripts/test-carrier-governance-policy.rs'
+      - 'scripts/verify-oreslang-external-anchor.rs'
+      - 'scripts/test-oreslang-external-anchor.rs'
+      - 'scripts/verify-live-carrier.rs'
+      - 'tools/trusted-plan/**'
+      - 'ci/test-plans/**'
+  push:
+    branches:
+      - 'ci/oreslang-*'
+permissions:
+  contents: read
+jobs:
+  verifier-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Source-free Rust verifier regression suite
+        run: |
+          cargo test --test oreslang-private-carrier
+          cargo test --test carrier-governance-policy
+          cargo test --test oreslang-external-anchor
+      - name: Trusted-plan runner regression suite
+        run: cargo test --manifest-path tools/trusted-plan/Cargo.toml --all-targets
+
+  verify-carrier:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'ci/oreslang-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Validate live carrier identity and dispatcher authorization before checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "orestra/orestra-conformance"
+          test "$GITHUB_REPOSITORY_ID" = "1426277234"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^ci/oreslang-[0-9a-f]{40}$ ]]
+          live="$RUNNER_TEMP/oreslang-live-carrier.json"
+          gh api 'repos/orestra/orestra-conformance' > "$live"
+          python3 -I - "$live" <<'PY'
+          import json, sys
+          from pathlib import Path
+          def unique(pairs):
+              out={}
+              for key,value in pairs:
+                  if key in out: raise SystemExit("duplicate live carrier metadata key")
+                  out[key]=value
+              return out
+          raw=Path(sys.argv[1]).read_bytes()
+          if not raw or len(raw)>1024*1024 or raw.startswith(b"\xef\xbb\xbf"):
+              raise SystemExit("invalid live carrier metadata")
+          repo=json.loads(raw.decode("utf-8"),object_pairs_hook=unique)
+          if (type(repo) is not dict
+                  or repo.get("id") != 1426277234
+                  or repo.get("full_name") != "orestra/orestra-conformance"
+                  or repo.get("private") is not True
+                  or repo.get("visibility") != "private"
+                  or repo.get("default_branch") != "main"
+                  or repo.get("archived") is not False
+                  or repo.get("disabled") is not False
+                  or repo.get("fork") is not False):
+              raise SystemExit("live carrier identity/privacy no longer eligible")
+          print("CARRIER_LIVE_PRIVATE_PASS")
+          PY
+
+          authorization_ref="ci/authorized-$GITHUB_SHA"
+          authorization_json="$RUNNER_TEMP/oreslang-authorization-ref.json"
+          authorized=false
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if gh api "repos/orestra/orestra-conformance/git/ref/heads/$authorization_ref" > "$authorization_json" 2>/dev/null; then
+              python3 -I - "$authorization_json" "$authorization_ref" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          obj=doc.get("object") if type(doc) is dict else None
+          if (doc.get("ref") != "refs/heads/"+sys.argv[2]
+                  or type(obj) is not dict
+                  or obj.get("type") != "commit"
+                  or obj.get("sha") != sys.argv[3]):
+              raise SystemExit("authorization ref does not bind event payload")
+          PY
+              authorized=true
+              break
+            fi
+            sleep 5
+          done
+          test "$authorized" = "true" || { echo "::error::Missing exact dispatcher authorization ref"; exit 1; }
+          echo "CARRIER_AUTHORIZATION_REF_PASS"
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+
+      - name: Verify protected public external authorization
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo run --quiet --bin verify-oreslang-external-anchor
+
+      - name: Verify exact-tree carrier provenance
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: cargo run --quiet --bin verify-oreslang-private-carrier
+
+      - name: Set up GraalVM JDK 25
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ github.token }}
+
+      - name: Recheck protected external authorization before source tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/verify-oreslang-external-anchor.py
+
+      - name: Execute immutable trusted test plan
+        run: cargo run --quiet --manifest-path tools/trusted-plan/Cargo.toml --
