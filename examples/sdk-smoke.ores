@@ -1,0 +1,26 @@
+import fnc {delay_ms, transient_http_status} from "../src/retry.ores";
+import fnc {can_fit} from "../src/quantity.ores";
+import fnc {revision_matches} from "../src/resource.ores";
+
+pub routine main(): void {
+  if delay_ms(0, 100, 800) != 100 || delay_ms(5, 100, 800) != 800; do
+    stdio.println("ERROR: retry backoff");
+    return;
+  fi
+  if !transient_http_status(503) || transient_http_status(409); do
+    stdio.println("ERROR: HTTP classification");
+    return;
+  fi
+  if !can_fit(500, 1024, 300, 800); do
+    stdio.println("ERROR: quantities");
+    return;
+  fi
+  if !revision_matches("rv-a:3", "rv-a:3") ||
+     revision_matches("rv-a:3", "rv-a:4") ||
+     revision_matches("", ""); do
+    stdio.println("ERROR: opaque versions");
+    return;
+  fi
+  stdio.println("orestra-sdk-ok");
+  return;
+}

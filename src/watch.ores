@@ -1,0 +1,17 @@
+define module watchcursor as
+  // A watch is strictly AFTER a consistent snapshot revision.
+  pub fnc next_event_is_valid(int snapshot_revision, int event_revision): bool {
+    return snapshot_revision >= 0 && event_revision > snapshot_revision;
+  }
+  pub fnc relist_required(int cursor, int compacted_through): bool {
+    return cursor < compacted_through;
+  }
+
+  // A resume token is opaque and denotes an INDIVIDUAL event, not just
+  // its shared transaction revision. Its validity comes from the server.
+  pub fnc may_resume(bool has_event_cursor, bool server_authenticated,
+                     bool authorized_scope_unchanged): bool {
+    return has_event_cursor && server_authenticated &&
+           authorized_scope_unchanged;
+  }
+end

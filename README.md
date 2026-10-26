@@ -1,16 +1,15 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra SDK
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+The Oreslang-native client library for Orestra resources.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
+Current code includes capped backoff, version-aware mutation guards, watch
+cursor validation and canonical CPU/memory quantities, plus a runnable Oreslang
+smoke example for a compatible backend.
 
-## Run
+**Status:** Early source foundation. No HTTP transport, generated RPC client or
+real cluster connectivity yet. See spec/CLIENT_CONTRACT.md before adding them.
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
-```
-
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
-
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+The source check is now Rust-first: run `cargo test --offline` and
+`cargo run --offline -- --root .`. This only checks module structure,
+balanced brace counts, and rejects standalone `&` or `|` in Oreslang source;
+it is **not** a compiler or borrow-checker admission proof.

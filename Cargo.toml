@@ -1,0 +1,9 @@
+[package]
+name = "orestra-sdk-source-gate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "orestra-sdk-source-gate"
+path = "tools/sdk-source-gate/main.rs"

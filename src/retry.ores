@@ -1,0 +1,23 @@
+// Client retry policy: only idempotent operations may be automatically retried.
+define module retry as
+  pub fnc saturating_double(int value, int cap): int {
+    if cap <= 0 || value <= 0; do return -1; fi
+    if value >= cap; do return cap; fi
+    if value > cap - value; do return cap; fi
+    return value * 2;
+  }
+  fnc steps(int remaining, int current, int cap): int {
+    if remaining <= 0; do return current; fi
+    return steps(remaining - 1, saturating_double(current, cap), cap);
+  }
+  pub fnc delay_ms(int attempt, int initial, int cap): int {
+    if attempt < 0 || attempt > 30 || initial <= 0 || cap < initial; do
+      return -1;
+    fi
+    return steps(attempt, initial, cap);
+  }
+  // 409 conflict needs a fresh GET and recompute; it is not an unbounded retry.
+  pub fnc transient_http_status(int status): bool {
+    return status == 429 || status == 502 || status == 503 || status == 504;
+  }
+end

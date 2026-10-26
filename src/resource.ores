@@ -1,0 +1,15 @@
+// Version/identity utilities used by strongly typed client operations.
+define module resource as
+  pub fnc resource_is_writable(int generation, int known_revision,
+                              bool authenticated, bool authorized): bool {
+    return generation > 0 && known_revision >= 0 &&
+           authenticated && authorized;
+  }
+  // resourceVersion is opaque; NEVER parse as an integer.
+  pub fnc revision_matches(String observed, String expected): bool {
+    return observed != "" && expected != "" && observed == expected;
+  }
+  pub fnc is_distinct_uid(int prior_uid, int current_uid): bool {
+    return prior_uid > 0 && current_uid > 0 && prior_uid != current_uid;
+  }
+end

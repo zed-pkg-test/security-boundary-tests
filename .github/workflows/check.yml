@@ -1,0 +1,21 @@
+name: SDK source checks
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject tracked Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_files="$(git ls-files -- '*.py' '*.pyw')"
+          if [ -n "$python_files" ]; then
+            echo "Tracked Python sources are prohibited; use Rust for repository tooling/tests." >&2
+            printf '%s\n' "$python_files" >&2
+            exit 1
+          fi
+      - run: cargo test --offline
+      - run: cargo run --offline -- --root .

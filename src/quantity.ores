@@ -1,0 +1,11 @@
+define module quantity as
+  // Integers are canonical. CPU is millicores; memory uses bytes.
+  pub fnc is_valid_request(int cpu_millis, int memory_bytes): bool {
+    return cpu_millis > 0 && memory_bytes > 0;
+  }
+  pub fnc can_fit(int cpu_free, int memory_free,
+                  int cpu_request, int memory_request): bool {
+    return is_valid_request(cpu_request, memory_request) &&
+           cpu_free >= cpu_request && memory_free >= memory_request;
+  }
+end
