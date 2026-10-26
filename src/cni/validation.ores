@@ -1,0 +1,12 @@
+define module cni_validation as
+  pub fnc valid_mtu(int mtu, int minimum_mtu, int maximum_mtu) -> bool {
+    return mtu >= minimum_mtu & mtu <= maximum_mtu & minimum_mtu > 0;
+  }
+  pub fnc may_attach(
+    bool authorized_namespace,
+    bool policy_accepted,
+    bool sandbox_identity_valid
+  ) -> bool {
+    return authorized_namespace & policy_accepted & sandbox_identity_valid;
+  }
+end

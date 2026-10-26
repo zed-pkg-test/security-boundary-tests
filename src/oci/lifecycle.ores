@@ -1,0 +1,36 @@
+// Pure node-runtime lifecycle guards. Host process execution lives behind an
+// authenticated driver boundary; these helpers do not execute commands.
+define module oci_lifecycle as
+  pub fnc start_authorized(
+    int current_agent_epoch,
+    int claimed_agent_epoch,
+    int requested_generation,
+    int observed_generation,
+    bool same_workload_uid,
+    bool deleting
+  ) -> bool {
+    if current_agent_epoch <= 0 ||
+    claimed_agent_epoch != current_agent_epoch; do return false; fi
+    if requested_generation <= 0 || observed_generation < 0; then
+      return false;
+    fi
+    if requested_generation < observed_generation; then
+      return false;
+    fi
+    return same_workload_uid && !deleting;
+  }
+
+  pub fnc stop_authorized(
+    int current_agent_epoch,
+    int claimed_agent_epoch,
+    bool sandbox_identity_valid
+  ) -> bool {
+    return current_agent_epoch > 0 &&
+    claimed_agent_epoch == current_agent_epoch &&
+    sandbox_identity_valid;
+  }
+
+  pub fnc release_resources(bool stop_requested, bool process_absent_confirmed) -> bool {
+    return stop_requested && process_absent_confirmed;
+  }
+end

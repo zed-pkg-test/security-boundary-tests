@@ -1,0 +1,15 @@
+// Pure validation for OCI runtime resources, not the runtime invocation itself.
+define module oci_validation as
+  pub fnc valid_limits(int cpu_millis, int memory_bytes, int pids_limit) -> bool {
+    return cpu_millis > 0 & memory_bytes > 0 & pids_limit > 0;
+  }
+  pub fnc may_reuse_container(
+    int requested_generation,
+    int observed_generation,
+    bool same_workload_uid,
+    bool runtime_alive
+  ) -> bool {
+    return requested_generation == observed_generation &
+    requested_generation > 0 & same_workload_uid & runtime_alive;
+  }
+end

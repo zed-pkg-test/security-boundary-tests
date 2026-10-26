@@ -1,0 +1,23 @@
+name: Driver contracts
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject tracked Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_files="$(git ls-files -- '*.py' '*.pyw')"
+          if [ -n "$python_files" ]; then
+            echo "Tracked Python sources are prohibited; use Rust for repository tooling/tests." >&2
+            printf '%s\n' "$python_files" >&2
+            exit 1
+          fi
+      - name: Rust unit and process-lifecycle tests
+        run: cargo test --all-targets --verbose
+      - name: Validate driver manifests with Rust CLI
+        run: cargo run --bin orestra-driver-manifest -- --root .

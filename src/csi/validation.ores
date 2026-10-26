@@ -1,0 +1,13 @@
+define module csi_validation as
+  pub fnc may_attach(
+    bool volume_exists,
+    bool node_authorized,
+    bool volume_fenced,
+    bool exclusive_in_use
+  ) -> bool {
+    return volume_exists & node_authorized & volume_fenced & !exclusive_in_use;
+  }
+  pub fnc can_detach(bool unmounted, bool no_active_users) -> bool {
+    return unmounted & no_active_users;
+  }
+end

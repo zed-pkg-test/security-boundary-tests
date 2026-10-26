@@ -1,0 +1,25 @@
+syntax = "proto3";
+package orestra.driver.v1alpha1;
+
+// Internal driver RPC boundary. Sandbox identity must be authenticated
+// outside the protobuf payload using transport credentials.
+message WorkloadRef { string namespace = 1; string uid = 2; uint64 generation = 3; }
+message RuntimeConfig {
+  WorkloadRef workload = 1;
+  string image_reference = 2;
+  uint64 cpu_millis = 3;
+  uint64 memory_bytes = 4;
+  uint64 pids_limit = 5;
+}
+message SandboxHandle { string opaque_id = 1; WorkloadRef workload = 2; }
+message StartRequest { RuntimeConfig spec = 1; uint64 agent_epoch = 2; string idempotency_key = 3; }
+message StopRequest { SandboxHandle sandbox = 1; uint64 agent_epoch = 2; }
+message StatusRequest { SandboxHandle sandbox = 1; }
+message SandboxStatus { enum Phase { UNKNOWN = 0; CREATED = 1; RUNNING = 2; STOPPED = 3; FAILED = 4; }
+  Phase phase = 1; int32 exit_code = 2;
+}
+service RuntimeDriver {
+  rpc Start(StartRequest) returns (SandboxHandle);
+  rpc Stop(StopRequest) returns (SandboxStatus);
+  rpc Status(StatusRequest) returns (SandboxStatus);
+}

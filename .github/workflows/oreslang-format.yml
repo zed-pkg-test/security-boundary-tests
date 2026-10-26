@@ -1,0 +1,31 @@
+name: Oreslang format
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  oresfmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out pinned formatter mirror
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ci/oreslang-format-tool-7d7430c
+          path: .ci/oreslang-format
+          persist-credentials: false
+      - name: Verify pinned formatter tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .ci/oreslang-format rev-parse 'HEAD^{tree}')" = "3d51a751194fcefe3fefc00da1668b4a00ecce2c"
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: '1.85'
+      - name: Check canonical Oreslang formatting
+        run: cargo run --offline --quiet --manifest-path .ci/oreslang-format/Cargo.toml --bin oresfmt -- --check src

@@ -1,0 +1,31 @@
+{
+  "apiVersion": "orestra.io/v1alpha1",
+  "kind": "DriverManifest",
+  "metadata": {
+    "name": "csi-volume",
+    "version": "0.1.0-alpha"
+  },
+  "spec": {
+    "category": "volume",
+    "abi": {
+      "min": 1,
+      "max": 1
+    },
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64"
+    ],
+    "implementation": "external-csi-adapter",
+    "runtimeContract": "CSI",
+    "sandbox": {
+      "requires": [
+        "authenticated-driver-channel",
+        "volume-attachment-fencing"
+      ],
+      "mustDeny": [
+        "unfenced-multi-attach"
+      ]
+    },
+    "status": "planned"
+  }
+}

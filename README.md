@@ -1,16 +1,16 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra Drivers
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+Oreslang core source modules for runtime, CNI, CSI and driver ABI admission.
+A versioned driver protocol and machine-readable plugin manifests define
+future OCI, CNI and CSI integration.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
+**Important:** All provided driver manifests are `status: planned`.
+There is no OCI executor or CNI/CSI binary implementation here yet. The
+manifest validator and executable process-lifecycle oracle are Rust
+development/test tools, not the runtime. The process oracle invokes only its
+configured executable directly and never invokes a shell.
 
-## Run
+Run the contract suite with `cargo test --all-targets` and validate manifests
+with `cargo run -- manifests`.
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
-```
-
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
-
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+See docs/SECURITY.md for requirements before permitting host operations.

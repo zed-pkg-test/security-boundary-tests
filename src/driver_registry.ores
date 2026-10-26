@@ -1,0 +1,17 @@
+define module driver_registry as
+  // Numeric ABI versions are negotiated independently of plugin versions.
+  pub fnc abi_compatible(int minimum_supported, int maximum_supported, int requested_abi) -> bool {
+    return minimum_supported > 0 &
+    maximum_supported >= minimum_supported &
+    requested_abi >= minimum_supported &
+    requested_abi <= maximum_supported;
+  }
+  pub fnc allow_plugin(
+    bool signature_verified,
+    bool tenant_allowed,
+    bool sandboxed,
+    bool abi_compatible
+  ) -> bool {
+    return signature_verified & tenant_allowed & sandboxed & abi_compatible;
+  }
+end
