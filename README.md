@@ -1,16 +1,21 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra Console
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+Responsive static dashboard with resource inventory, health summaries, search,
+filters, refresh and a same-origin API proxy mode. It does not require a JS
+framework or build tool.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
-
-## Run
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
+```sh
+python3 -m http.server 8080
+# Open http://localhost:8080
 ```
 
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
+The default dashboard is explicitly labeled **sample data**. There is no
+functional live Orestra API yet. See docs/INTEGRATION.md for the future
+proxy contract and authentication requirements.
 
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+## Rust-first static asset gate
+
+Run `cargo test` and `cargo run -- --root .` to check demo JSON node/workload phases,
+accessible element markers, and absence of `innerHTML` in the checked JS asset.
+The existing Node/npm checks remain in CI. These static string checks **do not**
+prove browser accessibility, safe DOM behavior, or a functioning Orestra API.

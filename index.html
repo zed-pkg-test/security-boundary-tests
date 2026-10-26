@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1524">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Orestra Console — Cluster Overview</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="mark" aria-hidden="true">◉</span><div><b>orestra</b><small>cluster console</small></div></div>
+      <nav aria-label="Primary">
+        <a class="active" href="./index.html" aria-current="page">Overview</a>
+        <a href="#resources">Resources</a>
+        <a href="#about">Integration</a>
+      </nav>
+      <div class="sidebar-foot">PRE-ALPHA<br>Oreslang-native control plane</div>
+    </aside>
+    <main class="main">
+      <header>
+        <div><p class="eyebrow">CONTROL PLANE / OVERVIEW</p><h1>Cluster overview</h1><p class="sub">Observe scheduling, workloads and node health.</p></div>
+        <div class="actions"><span id="mode" class="mode">Loading...</span><button id="refresh" type="button">↻ Refresh</button></div>
+      </header>
+      <div id="error" role="alert" hidden></div>
+      <section class="metrics" aria-label="Resource summary">
+        <article class="metric"><span>Nodes ready</span><strong id="node-count">—</strong><small>Eligible scheduling targets</small></article>
+        <article class="metric"><span>Running workloads</span><strong id="workload-count">—</strong><small>Observed on ready nodes</small></article>
+        <article class="metric"><span>CPU allocated</span><strong id="cpu-used">—</strong><small>Millicores, observed</small></article>
+        <article class="metric"><span>Memory allocated</span><strong id="mem-used">—</strong><small>GiB, observed</small></article>
+      </section>
+      <section id="resources" class="panel">
+        <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h2>Resources</h2></div>
+          <div class="controls">
+            <label for="kind">Kind</label>
+            <select id="kind"><option value="Workload">Workloads</option><option value="Node">Nodes</option></select>
+            <label class="sr" for="query">Filter</label><input id="query" placeholder="Filter by name or namespace" autocomplete="off">
+          </div>
+        </div>
+        <div class="table-wrap"><table><thead><tr id="columns"></tr></thead><tbody id="rows"></tbody></table></div>
+        <div id="empty" class="empty" hidden>No resources match the filter.</div>
+      </section>
+      <section id="about" class="note">
+        <h2>Control-plane integration</h2>
+        <p>By default this console displays <strong>bundled sample data</strong>, not live cluster state.
+        Append <code>?api=/api</code> to request a same-origin API proxy that implements the Orestra
+        v1alpha1 list endpoints. Authentication belongs at the proxy; never put secrets in URLs.</p>
+      </section>
+      <footer>Orestra · Pre-alpha interface · Not a production monitoring system</footer>
+    </main>
+  </div>
+  <script type="module" src="./assets/app.js"></script>
+</body>
+</html>

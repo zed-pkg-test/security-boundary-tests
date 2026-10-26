@@ -1,0 +1,122 @@
+{
+  "nodes": [
+    {
+      "metadata": {
+        "name": "edge-01",
+        "namespace": "system"
+      },
+      "spec": {
+        "labels": {
+          "zone": "us-east-a"
+        },
+        "capacity": {
+          "cpuMillis": 8000,
+          "memoryBytes": 17179869184
+        }
+      },
+      "status": {
+        "phase": "Ready"
+      }
+    },
+    {
+      "metadata": {
+        "name": "edge-02",
+        "namespace": "system"
+      },
+      "spec": {
+        "labels": {
+          "zone": "us-east-b"
+        },
+        "capacity": {
+          "cpuMillis": 8000,
+          "memoryBytes": 17179869184
+        }
+      },
+      "status": {
+        "phase": "Ready"
+      }
+    },
+    {
+      "metadata": {
+        "name": "edge-03",
+        "namespace": "system"
+      },
+      "spec": {
+        "labels": {
+          "zone": "us-east-c"
+        },
+        "capacity": {
+          "cpuMillis": 4000,
+          "memoryBytes": 8589934592
+        }
+      },
+      "status": {
+        "phase": "NotReady"
+      }
+    }
+  ],
+  "workloads": [
+    {
+      "metadata": {
+        "name": "frontend-a",
+        "namespace": "default"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "web",
+            "resources": {
+              "cpuMillis": 500,
+              "memoryBytes": 268435456
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running",
+        "nodeName": "edge-01"
+      }
+    },
+    {
+      "metadata": {
+        "name": "frontend-b",
+        "namespace": "default"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "web",
+            "resources": {
+              "cpuMillis": 500,
+              "memoryBytes": 268435456
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running",
+        "nodeName": "edge-02"
+      }
+    },
+    {
+      "metadata": {
+        "name": "worker-0",
+        "namespace": "jobs"
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "batch",
+            "resources": {
+              "cpuMillis": 2000,
+              "memoryBytes": 2147483648
+            }
+          }
+        ]
+      },
+      "status": {
+        "phase": "Pending"
+      }
+    }
+  ]
+}
