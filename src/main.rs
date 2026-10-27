@@ -2,6 +2,8 @@
 use serde_json::Value;
 use std::{env, fs, path::{Path, PathBuf}};
 
+const MAX_FIXTURE_BYTES: u64 = 1_048_576;
+
 fn check_demo(data: &Value) -> Result<(), &'static str> {
     for field in ["nodes", "workloads"] {
         let items = data[field].as_array().ok_or("demo section must be a JSON array")?;
@@ -36,6 +38,9 @@ fn read_regular(path: &Path) -> Result<Vec<u8>, String> {
     let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if meta.file_type().is_symlink() || !meta.is_file() {
         return Err(format!("fixture must be a regular non-symlink file: {}", path.display()));
+    }
+    if meta.len() > MAX_FIXTURE_BYTES {
+        return Err(format!("fixture exceeds {MAX_FIXTURE_BYTES} bytes: {}", path.display()));
     }
     fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -96,6 +101,26 @@ mod tests {
             let missing = html.replace(marker, "");
             assert!(check_assets(&missing, "replaceChildren").is_err(), "missing marker admitted: {marker}");
         }
+    }
+
+    #[test]
+    fn rejects_oversized_fixture_files() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-ui-size-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(root.join("data")).unwrap();
+        fs::create_dir_all(root.join("assets")).unwrap();
+        fs::write(
+            root.join("data/demo.json"),
+            vec![b'x'; (MAX_FIXTURE_BYTES + 1) as usize],
+        )
+        .unwrap();
+        fs::write(root.join("index.html"), r#"<html lang="en"><div role="alert" id="rows"></div><input id="query"></html>"#).unwrap();
+        fs::write(root.join("assets/app.js"), "replaceChildren").unwrap();
+
+        assert!(check(&root).is_err());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[cfg(unix)]
