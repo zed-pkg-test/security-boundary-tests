@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_DOC_BYTES: u64 = 1_048_576;
+const MAX_DOC_FILES: usize = 4096;
 const REPOSITORIES: [&str; 9] = [
     "orestra", "orestra-api", "orestra-cli", "orestra-sdk",
     "orestra-state", "orestra-drivers", "orestra-ui",
@@ -23,6 +24,11 @@ fn collect_md(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), S
             }
             collect_md(root, &path, files)?;
         } else if kind.is_file() && path.extension().is_some_and(|e| e == "md") {
+            if files.len() >= MAX_DOC_FILES {
+                return Err(format!(
+                    "documentation inventory exceeds {MAX_DOC_FILES} Markdown files"
+                ));
+            }
             files.push(path);
         }
     }
@@ -224,6 +230,21 @@ mod tests {
         )
         .unwrap();
         assert!(check_lock(&root).is_err());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_markdown_inventory() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-docs-count-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("one.md"), "# one\n").unwrap();
+
+        let mut files = vec![PathBuf::new(); MAX_DOC_FILES];
+        assert!(collect_md(&root, &root, &mut files).is_err());
 
         fs::remove_dir_all(&root).unwrap();
     }
