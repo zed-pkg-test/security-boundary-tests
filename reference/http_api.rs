@@ -760,7 +760,11 @@ fn parse_query(query: &str) -> Result<HashMap<String, String>, ApiError> {
     }
     for part in query.split('&') {
         let (key, value) = part.split_once('=').unwrap_or((part, ""));
-        result.insert(percent_decode(key)?, percent_decode(value)?);
+        let key = percent_decode(key)?;
+        let value = percent_decode(value)?;
+        if result.insert(key, value).is_some() {
+            return Err(ApiError::BadRequest("duplicate query parameter".into()));
+        }
     }
     Ok(result)
 }

@@ -640,3 +640,17 @@ fn reducing_event_retention_compacts_immediately() {
     assert_eq!(latest.len(), 1);
     assert_eq!(latest[0]["revision"], "3");
 }
+
+#[test]
+fn duplicate_query_parameters_fail_closed_after_percent_decoding() {
+    let h = Harness::new();
+    assert_eq!(h.create("a").0, 201);
+
+    for path in [
+        "/v1alpha1/default/workload?limit=1&limit=2",
+        "/v1alpha1/default/workload?limit=1&%6cimit=2",
+        "/v1alpha1/default/workload/_watch?after=0&after=1",
+    ] {
+        assert_eq!(h.call("GET", path, Some("reader"), None, &[]).0, 400, "{path}");
+    }
+}
