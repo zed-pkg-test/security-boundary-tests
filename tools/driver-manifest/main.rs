@@ -8,6 +8,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const MAX_POLICY_LABELS: usize = 64;
+
 // Unlike serde_json::Value's default deserialization, reject duplicate JSON keys
 // at every nesting level. A manifest cannot smuggle conflicting policy entries.
 struct StrictValue(Value);
@@ -94,8 +96,11 @@ fn version(value: &str) -> bool {
 
 fn labels(value: &Value) -> bool {
     let Some(arr) = value.as_array() else { return false };
+    if arr.is_empty() || arr.len() > MAX_POLICY_LABELS {
+        return false;
+    }
     let mut seen = HashSet::new();
-    !arr.is_empty() && arr.iter().all(|v|
+    arr.iter().all(|v|
         v.as_str().is_some_and(|s| registry_name(s) && seen.insert(s))
     )
 }
@@ -280,6 +285,17 @@ mod tests {
             }
             assert!(validate(&m).is_err(), "mutation {case} unexpectedly admitted");
         }
+    }
+
+    #[test]
+    fn rejects_excessive_sandbox_policy_labels() {
+        let mut m = valid();
+        m["spec"]["sandbox"]["requires"] = Value::Array(
+            (0..=MAX_POLICY_LABELS)
+                .map(|index| json!(format!("label-{index}")))
+                .collect(),
+        );
+        assert!(validate(&m).is_err());
     }
 
     #[test]
