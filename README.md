@@ -1,16 +1,21 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra CLI
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+Native Oreslang command sources live under `src/` and `bin/`. The native
+cluster HTTP client is not yet implemented.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
-
-## Run
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
+Functional local bootstrap utilities are implemented in Rust and remain
+**offline only**:
+```sh
+cargo run --bin orestra-local -- plan examples/nodes.json --cpu-millis 200 --memory-bytes 268435456
+cargo test --all-targets
 ```
+The plan command does not reserve resources; results are advisory only.
 
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
+## Kubernetes import subset
 
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+`cargo run --bin orestra-local -- import-k8s deployment.json` converts a
+deliberately small JSON subset of `apps/v1 Deployment` to an Orestra
+Deployment. Unsupported or security-sensitive pod/container fields fail
+closed. This is a migration helper, not Kubernetes API compatibility.
+
+Python source files are not accepted in this repository.

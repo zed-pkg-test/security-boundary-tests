@@ -1,0 +1,18 @@
+// Command vocabulary is shared by help output and future process.argv adapter.
+define module command as
+  pub fnc recognized(String verb): bool {
+    return verb == "get" || verb == "apply" || verb == "delete" ||
+           verb == "describe" || verb == "events" || verb == "logs" ||
+           verb == "version" || verb == "help" || verb == "plan" ||
+           verb == "import-k8s";
+  }
+
+  pub fnc mutating(String verb): bool {
+    return verb == "apply" || verb == "delete";
+  }
+
+  pub fnc needs_network(String verb): bool {
+    return verb == "get" || verb == "apply" || verb == "delete" ||
+           verb == "describe" || verb == "events" || verb == "logs";
+  }
+end

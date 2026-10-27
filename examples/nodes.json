@@ -1,0 +1,24 @@
+[
+  {
+    "name": "node-a",
+    "ready": true,
+    "cpuMillis": 4000,
+    "memoryBytes": 8589934592,
+    "usedCpuMillis": 500,
+    "usedMemoryBytes": 536870912
+  },
+  {
+    "name": "node-b",
+    "ready": true,
+    "cpuMillis": 1000,
+    "memoryBytes": 2147483648,
+    "usedCpuMillis": 950,
+    "usedMemoryBytes": 536870912
+  },
+  {
+    "name": "node-c",
+    "ready": false,
+    "cpuMillis": 8000,
+    "memoryBytes": 17179869184
+  }
+]

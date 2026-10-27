@@ -1,0 +1,18 @@
+name: CLI offline verification
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject Python sources
+        run: |
+          if find . -type f -name '*.py' -print -quit | grep -q .; then
+            echo "Python sources are prohibited; use Rust for CLI tooling/tests." >&2
+            find . -type f -name '*.py' -print >&2
+            exit 1
+          fi
+      - run: cargo test --all-targets
+      - run: cargo run --bin orestra-local -- plan examples/nodes.json --cpu-millis 200 --memory-bytes 268435456

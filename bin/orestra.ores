@@ -1,0 +1,7 @@
+// CLI native entry-point skeleton. Argument/HTTP integration is pending.
+pub routine main(): void {
+  stdio.println("Orestra CLI (pre-alpha)");
+  stdio.println("Commands: get, apply, delete, describe, events, logs, plan");
+  stdio.println("The native Oreslang network client is not wired yet.");
+  return;
+}

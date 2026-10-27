@@ -1,0 +1,9 @@
+define module format as
+  pub fnc phase_is_terminal(String phase): bool {
+    return phase == "Succeeded" || phase == "Failed";
+  }
+
+  pub fnc phase_requires_attention(String phase): bool {
+    return phase == "Failed" || phase == "Unknown";
+  }
+end

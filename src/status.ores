@@ -1,0 +1,10 @@
+define module exitcode as
+  pub fnc from_http(int http_code): int {
+    if http_code >= 200 & http_code < 300; do return 0; fi
+    if http_code == 400 | http_code == 422; do return 2; fi
+    if http_code == 401 | http_code == 403; do return 3; fi
+    if http_code == 404; do return 4; fi
+    if http_code == 409; do return 5; fi
+    return 1;
+  }
+end
