@@ -6,6 +6,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    fs,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
