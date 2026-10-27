@@ -1,4 +1,4 @@
-use orestra_cli_tools::local::{cpu_millis, import_k8s_deployment, memory_bytes, validate};
+use orestra_cli_tools::local::{capacity_plan, cpu_millis, import_k8s_deployment, memory_bytes, validate};
 use serde_json::{json, Value};
 
 fn deployment() -> Value {
@@ -164,4 +164,20 @@ fn oversized_or_nul_identity_strings_are_rejected() {
     let mut document = deployment();
     document["spec"]["template"]["spec"]["containers"][0]["image"] = json!("i".repeat(2049));
     assert!(import_k8s_deployment(&document).is_err());
+}
+
+
+#[test]
+fn capacity_plan_rejects_oversized_or_nul_node_names() {
+    for name in ["x".repeat(257), "bad\0node".to_string()] {
+        let nodes = json!([{
+            "name":name,
+            "cpuMillis":1000,
+            "memoryBytes":1024,
+            "usedCpuMillis":0,
+            "usedMemoryBytes":0,
+            "ready":true
+        }]);
+        assert!(capacity_plan(&nodes, 1, 1).is_err());
+    }
 }
