@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 const MAX_KEY_BYTES: usize = 1024;
 const MAX_OBJECT_BYTES: usize = 1_048_576;
+const MAX_LEASE_IDENTITY_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lease {
@@ -104,7 +105,15 @@ impl MemoryStore {
     }
 
     pub fn elect(&self, domain: &str, holder: &str, now: i64, ttl: i64) -> Result<Lease, StoreError> {
-        if domain.is_empty() || holder.is_empty() || ttl <= 0 || now < 0 {
+        if domain.is_empty()
+            || domain.len() > MAX_LEASE_IDENTITY_BYTES
+            || domain.contains('\0')
+            || holder.is_empty()
+            || holder.len() > MAX_LEASE_IDENTITY_BYTES
+            || holder.contains('\0')
+            || ttl <= 0
+            || now < 0
+        {
             return Err(StoreError::Invalid("invalid lease request"));
         }
         let requested_expiry = now
