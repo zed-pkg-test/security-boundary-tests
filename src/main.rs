@@ -3,12 +3,16 @@ use serde_json::Value;
 use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_FIXTURE_BYTES: u64 = 1_048_576;
+const MAX_DEMO_ITEMS: usize = 4096;
 
 fn check_demo(data: &Value) -> Result<(), &'static str> {
     for field in ["nodes", "workloads"] {
         let items = data[field].as_array().ok_or("demo section must be a JSON array")?;
         if items.is_empty() {
             return Err("demo section must not be empty");
+        }
+        if items.len() > MAX_DEMO_ITEMS {
+            return Err("demo section exceeds resource count bound");
         }
         let mut identities = BTreeSet::new();
         for item in items {
@@ -131,6 +135,20 @@ mod tests {
             "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
         });
         assert!(check_demo(&duplicate).is_err());
+    }
+
+    #[test]
+    fn rejects_excessive_demo_resource_count() {
+        let item = json!({
+            "metadata":{"name":"n","namespace":"system"},
+            "status":{"phase":"Ready"}
+        });
+        let nodes = vec![item; MAX_DEMO_ITEMS + 1];
+        let data = json!({
+            "nodes":nodes,
+            "workloads":[{"metadata":{"name":"w","namespace":"default"},"status":{"phase":"Running"}}]
+        });
+        assert!(check_demo(&data).is_err());
     }
 
     #[test]
