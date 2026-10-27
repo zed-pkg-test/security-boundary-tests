@@ -1,0 +1,25 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.wasm",
+  "allowed_prs": [
+    145
+  ],
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "--test",
+        "tests/real-compiler-gate.test.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900
+    }
+  ],
+  "required_source_blobs": {
+    "package.json": "5038eee595d34ada6eecdada69a940b1be885a9e",
+    ".github/workflows/real-llvm.yml": "5f0181d7245e50a096338525aa44ded82b64de82",
+    "scripts/verify-real-compiler.mjs": "37aea94721720f92af7f7ca139382f4636b2ddd5",
+    "scripts/cleanup-real-compiler.mjs": "9454a085c87183ba1b86debb8634886bb7dc7836",
+    "tests/real-compiler-gate.test.mjs": "1c1a0c916c031502bc50a0f220ba4447b2e5a375"
+  }
+}

@@ -1,0 +1,1045 @@
+name: Oreslang private carrier security
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/oreslang-exact-tree-carrier.yml'
+      - 'scripts/verify-oreslang-private-carrier.py'
+      - 'scripts/test-oreslang-private-carrier.py'
+      - 'scripts/run-oreslang-test-plan.py'
+      - 'scripts/test-run-oreslang-test-plan.py'
+      - 'scripts/prefetch-oreslang-maven-deps.py'
+      - 'scripts/test-prefetch-oreslang-maven-deps.py'
+      - 'scripts/validate-oreslang-reviewed-plans.py'
+      - 'scripts/test-validate-oreslang-reviewed-plans.py'
+      - 'ci/test-plans/**'
+  push:
+    branches:
+      - 'ci/oreslang-*'
+
+permissions:
+  contents: read
+
+jobs:
+  verifier-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Source-free provenance verifier regression suite
+        run: python3 scripts/test-oreslang-private-carrier.py
+      - name: Source-free trusted-plan runner regression suite
+        run: python3 scripts/test-run-oreslang-test-plan.py
+      - name: Source-free Maven dependency controller regression suite
+        run: python3 scripts/test-prefetch-oreslang-maven-deps.py
+      - name: Source-free reviewed-plan admission regression suite
+        run: python3 scripts/test-validate-oreslang-reviewed-plans.py
+      - name: Validate exact Java, LLVM, .NET, JS and Wasm generator reviewed plans
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-oreslang-reviewed-plans.py \
+            ci/test-plans/java-pr2130.json \
+            ci/test-plans/java-pr2131.json \
+            ci/test-plans/llvm-pr1075.json \
+            ci/test-plans/net-pr180.json \
+            ci/test-plans/js-pr85.json \
+            ci/test-plans/wasm-pr145.json
+
+  isolation-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse blob-filtered carrier checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/workflows/oreslang-exact-tree-carrier.yml
+            scripts/run-oreslang-test-plan.py
+            scripts/test-run-oreslang-test-plan.py
+            scripts/prefetch-oreslang-maven-deps.py
+            scripts/test-prefetch-oreslang-maven-deps.py
+      - name: Prove unrelated carrier blob is absent after credential removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e README.md
+          unrelated_blob="$(git rev-parse HEAD:README.md)"
+          git remote remove origin
+          git config --unset-all http.https://github.com/.extraheader || true
+          if GIT_NO_LAZY_FETCH=1 git cat-file -e "$unrelated_blob" 2>/dev/null; then
+            echo "::error::Sparse blobless checkout retained an unrelated carrier blob"
+            exit 1
+          fi
+          echo "UNRELATED_CARRIER_BLOB_ABSENT_PASS"
+      - name: Prove deprivileged network-isolated guest boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          guest_root="/tmp/oreslang-source-free-probe-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$guest_root"
+          mkdir -p "$guest_root/source" "$guest_root/home"
+          printf 'synthetic-only\n' > "$guest_root/source/input.txt"
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          sudo -n chown -R 65534:65534 "$guest_root/source" "$guest_root/home"
+
+          sudo -n /usr/bin/env -i \
+            PATH=/usr/bin:/bin \
+            HOME="$guest_root/home" \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              test "$(id -u)" = "65534"
+              test ! -e "$1/.git"
+              test ! -r "$2/README.md"
+              test ! -r "$3"
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              for field in CapEff CapBnd CapAmb; do
+                value="$(sed -n "s/^$field:[[:space:]]*//p" /proc/self/status)"
+                test "$value" = "0000000000000000"
+              done
+              grep -q "^NoNewPrivs:[[:space:]]*1$" /proc/self/status
+              test -z "${GITHUB_TOKEN:-}"
+              test -z "${GH_TOKEN:-}"
+              python3 - <<'"'"'PY'"'"'
+          import socket
+          sock=socket.socket()
+          sock.settimeout(1)
+          try:
+              sock.connect(("1.1.1.1", 53))
+          except OSError:
+              print("OUTBOUND_NETWORK_DENIED_PASS")
+          else:
+              raise SystemExit("unexpected outbound network access")
+          finally:
+              sock.close()
+          PY
+              echo "DEPRIVILEGED_GUEST_BOUNDARY_PASS"
+            ' _ "$guest_root/source" "$GITHUB_WORKSPACE" "$HOME/.gitconfig"
+
+
+  synthetic-maven-offline-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse checkout trusted carrier controllers
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/run-oreslang-test-plan.py
+            scripts/prefetch-oreslang-maven-deps.py
+
+      - name: Set up GraalVM 25 for source-free synthetic probe
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ github.token }}
+
+      - name: Build synthetic reviewed Maven source and authorization
+        id: synth
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="/tmp/oreslang-synthetic-maven-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$root"
+          mkdir -p "$root/source/src/test/java" "$root/control/ci/test-plans" "$root/home" "$root/deps"
+
+          python3 -c 'from pathlib import Path; Path("'"$root"'/source/pom.xml").write_text("""<project xmlns="http://maven.apache.org/POM/4.0.0">
+          <modelVersion>4.0.0</modelVersion>
+          <groupId>synthetic</groupId><artifactId>carrier-probe</artifactId><version>1.0.0</version>
+          <properties><maven.compiler.release>17</maven.compiler.release></properties>
+          <dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency></dependencies>
+          <build><plugins>
+          <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+          <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin>
+          </plugins></build>
+          </project>
+          """, encoding="utf-8")'
+          python3 -c 'from pathlib import Path; Path("'"$root"'/source/src/test/java/SyntheticTest.java").write_text("""import org.junit.jupiter.api.Test;
+          import static org.junit.jupiter.api.Assertions.assertEquals;
+          final class SyntheticTest { @Test void passes() { assertEquals(4, 2 + 2); } }
+          """, encoding="utf-8")'
+
+          pom_blob="$(git hash-object "$root/source/pom.xml")"
+          export SYNTH_ROOT="$root" SYNTH_POM_BLOB="$pom_blob"
+          python3 -c 'import hashlib,json,os,pathlib; r=pathlib.Path(os.environ["SYNTH_ROOT"]); p={"schema":"ores-private-ci-test-plan-v1","source_repo":"synthetic/private","allowed_prs":[7],"maven_pom_blob_sha":os.environ["SYNTH_POM_BLOB"],"maven_prefetch_artifacts":["org.apache.maven.surefire:surefire-junit-platform:3.5.2","org.junit.platform:junit-platform-engine:1.9.3","org.junit.platform:junit-platform-launcher:1.9.3","org.junit.platform:junit-platform-commons:1.9.3","org.junit.platform:junit-platform-launcher:1.11.4"],"commands":[{"argv":["mvn","-o","-C","-B","-ntp","test"],"cwd":".","timeout_seconds":600,"stdout_contains":"BUILD SUCCESS"}]}; b=(json.dumps(p,sort_keys=True,separators=(",",":"))+"\n").encode(); q=r/"control/ci/test-plans/synthetic.json"; q.write_bytes(b); receipt={"schema":"ores-private-ci-receipt-v3","source":{"repo":"synthetic/private","pr":7},"test_plan":{"path":"ci/test-plans/synthetic.json","sha256":hashlib.sha256(b).hexdigest()}}; (r/"control/ci/oreslang-receipt.json").write_text(json.dumps(receipt),encoding="utf-8")'
+          cp scripts/run-oreslang-test-plan.py "$root/control/run-oreslang-test-plan.py"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Real networked dependency prefetch against synthetic reviewed POM
+        shell: bash
+        env:
+          SYNTH_ROOT: ${{ steps.synth.outputs.root }}
+        run: |
+          set -euo pipefail
+          python3 scripts/prefetch-oreslang-maven-deps.py \
+            --plan "$SYNTH_ROOT/control/ci/test-plans/synthetic.json" \
+            --pom "$SYNTH_ROOT/source/pom.xml" \
+            --repository "$SYNTH_ROOT/deps"
+          test -f "$SYNTH_ROOT/deps/.oreslang-prefetch-complete"
+          echo "REAL_MAVEN_PREFETCH_PASS"
+
+      - name: Execute synthetic Maven test offline inside real guest sandbox
+        shell: bash
+        env:
+          SYNTH_ROOT: ${{ steps.synth.outputs.root }}
+        run: |
+          set -euo pipefail
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          chmod 0711 "$SYNTH_ROOT"
+          chmod -R a-w "$SYNTH_ROOT/control"
+          chmod -R a+rX "$SYNTH_ROOT/control"
+          sudo -n chown -R root:root "$SYNTH_ROOT/source" "$SYNTH_ROOT/deps"
+          sudo -n find "$SYNTH_ROOT/source" -type d -exec chmod 0555 {} +
+          sudo -n find "$SYNTH_ROOT/source" -type f -perm /111 -exec chmod 0555 {} +
+          sudo -n find "$SYNTH_ROOT/source" -type f ! -perm /111 -exec chmod 0444 {} +
+          sudo -n find "$SYNTH_ROOT/deps" -type d -exec chmod 0555 {} +
+          sudo -n find "$SYNTH_ROOT/deps" -type f -exec chmod 0444 {} +
+          sudo -n chown -R 65534:65534 "$SYNTH_ROOT/home"
+          sudo -n chmod -R u+rwX,go-rwx "$SYNTH_ROOT/home"
+          if sudo -n -u '#65534' test -w "$SYNTH_ROOT/source"; then
+            echo "::error::synthetic source snapshot is writable"
+            exit 1
+          fi
+          if sudo -n -u '#65534' test -w "$SYNTH_ROOT/deps"; then
+            echo "::error::synthetic dependency cache is writable"
+            exit 1
+          fi
+
+          java_home="${JAVA_HOME:-}"
+          test -n "$java_home"
+          sudo -n /usr/bin/env -i \
+            PATH="/opt/ores-rust-1.85/bin:$java_home/bin:/usr/local/bin:/usr/bin:/bin" \
+            JAVA_HOME="$java_home" GRAALVM_HOME="$java_home" \
+            HOME="$SYNTH_ROOT/home" LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source" \
+                --dependency-repo "$1/deps"
+            ' _ "$SYNTH_ROOT"
+
+
+  synthetic-native-offline-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse checkout trusted plan runner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/run-oreslang-test-plan.py
+
+      - name: Install native toolchain before synthetic source exists
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang python3 util-linux
+
+      - name: Build synthetic native source and immutable plan
+        id: synth-native
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="/tmp/oreslang-synthetic-native-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$root"
+          mkdir -p "$root/source" "$root/control/ci/test-plans" "$root/home"
+          cat > "$root/source/CMakeLists.txt" <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(carrier_probe LANGUAGES CXX)
+          enable_testing()
+          add_executable(probe probe.cpp)
+          add_test(NAME probe COMMAND probe)
+          EOF
+          cat > "$root/source/probe.cpp" <<'EOF'
+          #include <iostream>
+          int main() { std::cout << "NATIVE_PROBE_PASS\\n"; return 0; }
+          EOF
+          export SYNTH_NATIVE_ROOT="$root"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          r=pathlib.Path(os.environ["SYNTH_NATIVE_ROOT"])
+          orchestration=(
+            "import subprocess; "
+            "subprocess.run(['cmake','-S','.','-B','build','-DCMAKE_CXX_COMPILER=clang++'],check=True); "
+            "subprocess.run(['cmake','--build','build','--parallel','2'],check=True); "
+            "subprocess.run(['ctest','--test-dir','build','--output-on-failure'],check=True); "
+            "print('NATIVE_ORCHESTRATION_PASS')"
+          )
+          p={"schema":"ores-private-ci-test-plan-v1","source_repo":"synthetic/private","allowed_prs":[7],"commands":[
+            {"argv":["python3","-c",orchestration],"cwd":".","timeout_seconds":300,"stdout_contains":"NATIVE_ORCHESTRATION_PASS"}
+          ]}
+          b=(json.dumps(p,sort_keys=True,separators=(",",":"))+"\n").encode()
+          q=r/"control/ci/test-plans/synthetic-native.json"; q.write_bytes(b)
+          receipt={"schema":"ores-private-ci-receipt-v3","source":{"repo":"synthetic/private","pr":7},"test_plan":{"path":"ci/test-plans/synthetic-native.json","sha256":hashlib.sha256(b).hexdigest()}}
+          (r/"control/ci/oreslang-receipt.json").write_text(json.dumps(receipt),encoding="utf-8")
+          PY
+          cp scripts/run-oreslang-test-plan.py "$root/control/run-oreslang-test-plan.py"
+          chmod 0711 "$root"
+          chmod -R a-w "$root/control"
+          chmod -R a+rX "$root/control"
+          chmod -R u+rwX,go-rwx "$root/home"
+          sudo -n chown -R root:root "$root/source"
+          sudo -n find "$root/source" -type d -exec chmod 0555 {} +
+          sudo -n find "$root/source" -type f -perm /111 -exec chmod 0555 {} +
+          sudo -n find "$root/source" -type f ! -perm /111 -exec chmod 0444 {} +
+          sudo -n chown -R 65534:65534 "$root/home"
+          if sudo -n -u '#65534' test -w "$root/source"; then
+            echo "::error::synthetic native canonical source is writable"
+            exit 1
+          fi
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Run CMake build and CTest in isolated guest
+        shell: bash
+        env:
+          SYNTH_NATIVE_ROOT: ${{ steps.synth-native.outputs.root }}
+        run: |
+          set -euo pipefail
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          sudo -n /usr/bin/env -i \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            HOME="$SYNTH_NATIVE_ROOT/home" LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source"
+            ' _ "$SYNTH_NATIVE_ROOT"
+
+
+  synthetic-rust-offline-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse checkout trusted plan runner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/run-oreslang-test-plan.py
+
+      - name: Set up Rust 1.85 before synthetic source exists
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
+
+      - name: Freeze trusted Rust toolchain outside runner HOME
+        shell: bash
+        run: |
+          set -euo pipefail
+          sysroot="$(rustc +1.85.0 --print sysroot)"
+          sudo rm -rf /opt/ores-rust-1.85
+          sudo cp -a "$sysroot" /opt/ores-rust-1.85
+          sudo chown -R root:root /opt/ores-rust-1.85
+          sudo chmod -R a-w /opt/ores-rust-1.85
+          /opt/ores-rust-1.85/bin/rustc --version | grep -q '^rustc 1\.85\.'
+          /opt/ores-rust-1.85/bin/rustfmt --version
+          /opt/ores-rust-1.85/bin/clippy-driver --version
+          echo "TRUSTED_RUST_TOOLCHAIN_PASS"
+
+      - name: Build synthetic Rust source and immutable plan
+        id: synth-rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="/tmp/oreslang-synthetic-rust-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$root"
+          mkdir -p "$root/source/src" "$root/control/ci/test-plans" "$root/home"
+          cat > "$root/source/Cargo.toml" <<'EOF'
+          [package]
+          name = "carrier-rust-probe"
+          version = "0.1.0"
+          edition = "2024"
+          rust-version = "1.85"
+          EOF
+          cat > "$root/source/src/lib.rs" <<'EOF'
+          pub fn answer() -> u32 {
+              42
+          }
+
+          #[cfg(test)]
+          mod tests {
+              #[test]
+              fn works() {
+                  assert_eq!(super::answer(), 42);
+              }
+          }
+          EOF
+          export SYNTH_RUST_ROOT="$root"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          r=pathlib.Path(os.environ["SYNTH_RUST_ROOT"])
+          p={"schema":"ores-private-ci-test-plan-v1","source_repo":"synthetic/private","allowed_prs":[7],"commands":[
+            {"argv":["cargo","fmt","--all","--","--check"],"cwd":".","timeout_seconds":300},
+            {"argv":["cargo","test","--offline","--all-targets"],"cwd":".","timeout_seconds":300,"stdout_contains":"test result: ok"},
+            {"argv":["cargo","clippy","--offline","--all-targets","--","-D","warnings"],"cwd":".","timeout_seconds":300}
+          ]}
+          b=(json.dumps(p,sort_keys=True,separators=(",",":"))+"\n").encode()
+          q=r/"control/ci/test-plans/synthetic-rust.json"; q.write_bytes(b)
+          receipt={"schema":"ores-private-ci-receipt-v3","source":{"repo":"synthetic/private","pr":7},"test_plan":{"path":"ci/test-plans/synthetic-rust.json","sha256":hashlib.sha256(b).hexdigest()}}
+          (r/"control/ci/oreslang-receipt.json").write_text(json.dumps(receipt),encoding="utf-8")
+          PY
+          cp scripts/run-oreslang-test-plan.py "$root/control/run-oreslang-test-plan.py"
+          chmod 0711 "$root"
+          chmod -R a-w "$root/control"
+          chmod -R a+rX "$root/control"
+          sudo chown -R root:root "$root/source"
+          sudo find "$root/source" -type d -exec chmod 0555 {} +
+          sudo find "$root/source" -type f -exec chmod 0444 {} +
+          sudo chown -R 65534:65534 "$root/home"
+          sudo chmod -R u+rwX,go-rwx "$root/home"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
+      - name: Run Rust formatter/test/clippy in isolated guest
+        shell: bash
+        env:
+          SYNTH_RUST_ROOT: ${{ steps.synth-rust.outputs.root }}
+        run: |
+          set -euo pipefail
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          sudo -n /usr/bin/env -i \
+            PATH=/opt/ores-rust-1.85/bin:/usr/local/bin:/usr/bin:/bin \
+            HOME="$SYNTH_RUST_ROOT/home" LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source"
+            ' _ "$SYNTH_RUST_ROOT"
+
+  synthetic-node-offline-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse checkout trusted plan runner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/run-oreslang-test-plan.py
+
+      - name: Set up Node 22 before synthetic source exists
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: ''
+
+      - name: Build synthetic Node source and immutable plan
+        id: synth-node
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version | grep -q '^v22\.'
+          root="/tmp/oreslang-synthetic-node-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$root"
+          mkdir -p "$root/source/tests" "$root/control/ci/test-plans" "$root/home"
+          cat > "$root/source/package.json" <<'EOF'
+          {"private":true,"type":"module","engines":{"node":">=22"}}
+          EOF
+          cat > "$root/source/tests/smoke.test.mjs" <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          test('source-free Node sandbox', () => assert.equal(6 * 7, 42));
+          EOF
+          export SYNTH_NODE_ROOT="$root"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          r=pathlib.Path(os.environ["SYNTH_NODE_ROOT"])
+          p={"schema":"ores-private-ci-test-plan-v1","source_repo":"synthetic/private","allowed_prs":[7],"commands":[
+            {"argv":["node","--test","tests/smoke.test.mjs"],"cwd":".","timeout_seconds":300}
+          ]}
+          b=(json.dumps(p,sort_keys=True,separators=(",",":"))+"\n").encode()
+          q=r/"control/ci/test-plans/synthetic-node.json"; q.write_bytes(b)
+          receipt={"schema":"ores-private-ci-receipt-v3","source":{"repo":"synthetic/private","pr":7},"test_plan":{"path":"ci/test-plans/synthetic-node.json","sha256":hashlib.sha256(b).hexdigest()}}
+          (r/"control/ci/oreslang-receipt.json").write_text(json.dumps(receipt),encoding="utf-8")
+          PY
+          cp scripts/run-oreslang-test-plan.py "$root/control/run-oreslang-test-plan.py"
+          chmod 0711 "$root"
+          chmod -R a-w "$root/control"
+          chmod -R a+rX "$root/control"
+          sudo chown -R root:root "$root/source"
+          sudo find "$root/source" -type d -exec chmod 0555 {} +
+          sudo find "$root/source" -type f -exec chmod 0444 {} +
+          sudo chown -R 65534:65534 "$root/home"
+          sudo chmod -R u+rwX,go-rwx "$root/home"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "node_dir=$(dirname "$(command -v node)")" >> "$GITHUB_OUTPUT"
+
+      - name: Run Node test in isolated guest
+        shell: bash
+        env:
+          SYNTH_NODE_ROOT: ${{ steps.synth-node.outputs.root }}
+          NODE_BIN_DIR: ${{ steps.synth-node.outputs.node_dir }}
+        run: |
+          set -euo pipefail
+          test -x "$NODE_BIN_DIR/node"
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          sudo -n /usr/bin/env -i \
+            PATH="$NODE_BIN_DIR:/usr/local/bin:/usr/bin:/bin" \
+            HOME="$SYNTH_NODE_ROOT/home" LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source"
+            ' _ "$SYNTH_NODE_ROOT"
+
+  synthetic-dotnet-offline-probe:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Sparse checkout trusted plan runner
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/run-oreslang-test-plan.py
+
+      - name: Set up .NET 10 before synthetic source exists
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Build synthetic .NET source and immutable plan
+        id: synth-dotnet
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet --list-sdks | grep -q '^10\.0\.100 '
+          root="/tmp/oreslang-synthetic-dotnet-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$root"
+          mkdir -p "$root/source/verification/Ores.Net.Generator.Tests" "$root/control/ci/test-plans" "$root/home"
+          cat > "$root/source/global.json" <<'EOF'
+          {"sdk":{"version":"10.0.100","rollForward":"disable"}}
+          EOF
+          cat > "$root/source/verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj" <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>net10.0</TargetFramework>
+            </PropertyGroup>
+          </Project>
+          EOF
+          cat > "$root/source/verification/Ores.Net.Generator.Tests/Program.cs" <<'EOF'
+          System.Console.WriteLine(6 * 7 == 42 ? "DOTNET_GENERATOR_V1_PASS" : "FAIL");
+          EOF
+          export SYNTH_DOTNET_ROOT="$root"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          r=pathlib.Path(os.environ["SYNTH_DOTNET_ROOT"])
+          argv=["dotnet","run","--project","verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj","--configuration","Release","--disable-build-servers","-p:RestoreIgnoreFailedSources=true","-p:NuGetAudit=false"]
+          p={"schema":"ores-private-ci-test-plan-v1","source_repo":"synthetic/private","allowed_prs":[7],"commands":[
+            {"argv":argv,"cwd":".","timeout_seconds":300,"stdout_contains":"DOTNET_GENERATOR_V1_PASS"}
+          ]}
+          b=(json.dumps(p,sort_keys=True,separators=(",",":"))+"\n").encode()
+          q=r/"control/ci/test-plans/synthetic-dotnet.json"; q.write_bytes(b)
+          receipt={"schema":"ores-private-ci-receipt-v3","source":{"repo":"synthetic/private","pr":7},"test_plan":{"path":"ci/test-plans/synthetic-dotnet.json","sha256":hashlib.sha256(b).hexdigest()}}
+          (r/"control/ci/oreslang-receipt.json").write_text(json.dumps(receipt),encoding="utf-8")
+          PY
+          cp scripts/run-oreslang-test-plan.py "$root/control/run-oreslang-test-plan.py"
+          chmod 0711 "$root"
+          chmod -R a-w "$root/control"
+          chmod -R a+rX "$root/control"
+          sudo chown -R root:root "$root/source"
+          sudo find "$root/source" -type d -exec chmod 0555 {} +
+          sudo find "$root/source" -type f -exec chmod 0444 {} +
+          sudo chown -R 65534:65534 "$root/home"
+          sudo chmod -R u+rwX,go-rwx "$root/home"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "dotnet_dir=$(dirname "$(command -v dotnet)")" >> "$GITHUB_OUTPUT"
+          echo "dotnet_root=$DOTNET_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Run .NET generator verifier in isolated guest
+        shell: bash
+        env:
+          SYNTH_DOTNET_ROOT: ${{ steps.synth-dotnet.outputs.root }}
+          DOTNET_BIN_DIR: ${{ steps.synth-dotnet.outputs.dotnet_dir }}
+          TRUSTED_DOTNET_ROOT: ${{ steps.synth-dotnet.outputs.dotnet_root }}
+        run: |
+          set -euo pipefail
+          test -x "$DOTNET_BIN_DIR/dotnet"
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          sudo -n /usr/bin/env -i \
+            PATH="$DOTNET_BIN_DIR:/usr/local/bin:/usr/bin:/bin" \
+            DOTNET_ROOT="$TRUSTED_DOTNET_ROOT" \
+            HOME="$SYNTH_DOTNET_ROOT/home" LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source"
+            ' _ "$SYNTH_DOTNET_ROOT"
+
+  prepare-dependencies:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'ci/oreslang-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Validate live private carrier and exact dispatcher authorization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/security-boundary-tests"
+          test "$GITHUB_REPOSITORY_ID" = "1328468716"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^ci/oreslang-[0-9a-f]{40}$ ]]
+
+          live="$RUNNER_TEMP/carrier.json"
+          gh api "repos/$GITHUB_REPOSITORY" > "$live"
+          python3 -I - "$live" <<'PY'
+          import json,sys
+          from pathlib import Path
+          def unique(pairs):
+              out={}
+              for k,v in pairs:
+                  if k in out: raise SystemExit("duplicate carrier metadata key")
+                  out[k]=v
+              return out
+          doc=json.loads(Path(sys.argv[1]).read_text(),object_pairs_hook=unique)
+          if (doc.get("id") != 1328468716
+                  or doc.get("full_name") != "zed-pkg-test/security-boundary-tests"
+                  or doc.get("private") is not True
+                  or doc.get("visibility") != "private"
+                  or doc.get("default_branch") != "main"
+                  or doc.get("archived") is not False
+                  or doc.get("disabled") is not False
+                  or doc.get("fork") is not False):
+              raise SystemExit("live carrier identity/privacy no longer eligible")
+          PY
+          auth="$RUNNER_TEMP/authorization.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/ci/authorized-$GITHUB_SHA" > "$auth"
+          python3 -I - "$auth" "$GITHUB_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          obj=doc.get("object") if isinstance(doc,dict) else None
+          if (not isinstance(obj,dict) or obj.get("type")!="commit" or obj.get("sha")!=sys.argv[2]):
+              raise SystemExit("dispatcher authorization ref mismatch")
+          PY
+          echo "PREFETCH_DISPATCH_AUTH_PASS"
+
+      - name: Set up GraalVM 25 without source checkout
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ github.token }}
+
+      - name: Checkout carrier control files only
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/prefetch-oreslang-maven-deps.py
+            ci/oreslang-receipt.json
+            ci/test-plans
+
+      - name: Resolve reviewed plan without materializing source
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e private-oreslang-source
+          describe="$(python3 scripts/prefetch-oreslang-maven-deps.py \
+            --receipt ci/oreslang-receipt.json --describe)"
+          plan_path="$(printf '%s\n' "$describe" | sed -n 's/^PLAN_PATH=//p')"
+          maven_required="$(printf '%s\n' "$describe" | sed -n 's/^MAVEN_REQUIRED=//p')"
+          pom_blob="$(printf '%s\n' "$describe" | sed -n 's/^POM_BLOB=//p')"
+          test -n "$plan_path"
+          test "$maven_required" = "true" -o "$maven_required" = "false"
+          echo "plan_path=$plan_path" >> "$GITHUB_OUTPUT"
+          echo "maven_required=$maven_required" >> "$GITHUB_OUTPUT"
+          echo "pom_blob=$pom_blob" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_FREE_PLAN_RESOLUTION_PASS"
+
+      - name: Fetch only reviewed source POM
+        if: steps.plan.outputs.maven_required == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_POM_BLOB: ${{ steps.plan.outputs.pom_blob }}
+        run: |
+          set -euo pipefail
+          meta="$RUNNER_TEMP/pom-meta.json"
+          gh api "repos/$GITHUB_REPOSITORY/contents/private-oreslang-source/pom.xml?ref=$GITHUB_SHA" > "$meta"
+          actual="$(python3 -I - "$meta" <<'PY'
+          import json,sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          print(doc.get("sha",""))
+          PY
+          )"
+          test "$actual" = "$EXPECTED_POM_BLOB"
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/private-oreslang-source/pom.xml?ref=$GITHUB_SHA" \
+            > "$RUNNER_TEMP/reviewed-pom.xml"
+          echo "REVIEWED_POM_ONLY_FETCH_PASS"
+
+      - name: Prefetch reviewed Maven dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oreslang-deps"
+          if [ "${{ steps.plan.outputs.maven_required }}" = "true" ]; then
+            python3 scripts/prefetch-oreslang-maven-deps.py \
+              --receipt ci/oreslang-receipt.json \
+              --pom "$RUNNER_TEMP/reviewed-pom.xml" \
+              --repository "$RUNNER_TEMP/oreslang-deps"
+          else
+            printf 'source-free\n' > "$RUNNER_TEMP/oreslang-deps/.oreslang-no-maven"
+          fi
+          rm -f "$RUNNER_TEMP/reviewed-pom.xml"
+          test ! -e private-oreslang-source
+          echo "SOURCE_FREE_DEPENDENCY_PREFETCH_PASS"
+
+      - name: Upload dependency-only cache
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: oreslang-deps-${{ github.sha }}
+          path: ${{ runner.temp }}/oreslang-deps
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+
+  verify-carrier:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'ci/oreslang-')
+    needs: prepare-dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: Validate live carrier identity and dispatcher authorization before source checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/security-boundary-tests"
+          test "$GITHUB_REPOSITORY_ID" = "1328468716"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^ci/oreslang-[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/ci/authorized-$GITHUB_SHA" \
+            > "$RUNNER_TEMP/authorization.json"
+          python3 -I - "$RUNNER_TEMP/authorization.json" "$GITHUB_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          obj=doc.get("object") if isinstance(doc,dict) else None
+          if (not isinstance(obj,dict) or obj.get("type")!="commit" or obj.get("sha")!=sys.argv[2]):
+              raise SystemExit("dispatcher authorization ref mismatch")
+          PY
+          echo "SOURCE_DISPATCH_AUTH_PASS"
+
+      - name: Install native toolchain before source materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake clang llvm-dev python3 util-linux
+
+      - name: Set up GraalVM 25 before source materialization
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ github.token }}
+
+      - name: Set up Node 22 before source materialization
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: ''
+
+      - name: Set up .NET 10 before source materialization
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.100'
+
+      - name: Set up Rust 1.85 before source materialization
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.85.0
+          components: rustfmt, clippy
+
+      - name: Freeze trusted Rust toolchain outside runner HOME
+        shell: bash
+        run: |
+          set -euo pipefail
+          sysroot="$(rustc +1.85.0 --print sysroot)"
+          sudo rm -rf /opt/ores-rust-1.85
+          sudo cp -a "$sysroot" /opt/ores-rust-1.85
+          sudo chown -R root:root /opt/ores-rust-1.85
+          sudo chmod -R a-w /opt/ores-rust-1.85
+          /opt/ores-rust-1.85/bin/rustc --version | grep -q '^rustc 1\.85\.'
+          echo "TRUSTED_RUST_TOOLCHAIN_READY"
+
+      - name: Download dependency-only cache before source checkout
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3
+        with:
+          name: oreslang-deps-${{ github.sha }}
+          path: ${{ runner.temp }}/downloaded-deps
+
+      - name: Sparse blob-filtered exact carrier checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/workflows/oreslang-exact-tree-carrier.yml
+            scripts/verify-oreslang-private-carrier.py
+            scripts/run-oreslang-test-plan.py
+            ci
+            private-oreslang-source
+
+      - name: Verify exact-tree carrier provenance
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: python3 scripts/verify-oreslang-private-carrier.py
+
+      - name: Recheck dispatcher authorization before guest preparation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          response="$RUNNER_TEMP/authorization-recheck.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/ci/authorized-$GITHUB_SHA" > "$response"
+          python3 -I - "$response" "$GITHUB_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          obj=doc.get("object") if isinstance(doc,dict) else None
+          if (not isinstance(obj,dict) or obj.get("type")!="commit" or obj.get("sha")!=sys.argv[2]):
+              raise SystemExit("dispatcher authorization revoked or changed")
+          PY
+          echo "CARRIER_AUTHORIZATION_RECHECK_PASS"
+
+      - name: Build gitless least-privilege guest sandbox
+        id: sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          guest="/tmp/oreslang-guest-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$guest"
+          mkdir -p "$guest/control/ci" "$guest/source" "$guest/home" "$guest/deps"
+
+          cp scripts/run-oreslang-test-plan.py "$guest/control/run-oreslang-test-plan.py"
+          cp -a ci/. "$guest/control/ci/"
+          cp -a private-oreslang-source/. "$guest/source/"
+          cp -a "$RUNNER_TEMP/downloaded-deps"/. "$guest/deps/"
+          rm -rf "$RUNNER_TEMP/downloaded-deps"
+
+          test ! -e "$guest/source/.git"
+          if find "$guest/source" -name .git -print -quit | grep -q .; then
+            echo "::error::Git metadata entered source sandbox"
+            exit 1
+          fi
+
+          unrelated_blob="$(git rev-parse HEAD:README.md)"
+          test ! -e README.md
+          git remote remove origin
+          git config --unset-all http.https://github.com/.extraheader || true
+          git config --unset-all credential.helper || true
+          if GIT_NO_LAZY_FETCH=1 git cat-file -e "$unrelated_blob" 2>/dev/null; then
+            echo "::error::Unrelated carrier blob is present in local object database"
+            exit 1
+          fi
+
+          chmod 700 "$HOME" "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+          chmod -R go-rwx "$GITHUB_WORKSPACE"
+          chmod 0711 "$guest"
+          chmod -R a-w "$guest/control"
+          chmod -R a+rX "$guest/control"
+          chmod 0700 "$guest/home"
+          sudo -n chown -R root:root "$guest/source" "$guest/deps"
+          sudo -n find "$guest/source" -type d -exec chmod 0555 {} +
+          sudo -n find "$guest/source" -type f -perm /111 -exec chmod 0555 {} +
+          sudo -n find "$guest/source" -type f ! -perm /111 -exec chmod 0444 {} +
+          sudo -n find "$guest/deps" -type d -exec chmod 0555 {} +
+          sudo -n find "$guest/deps" -type f -exec chmod 0444 {} +
+          sudo -n chown -R 65534:65534 "$guest/home"
+          sudo -n chmod -R u+rwX,go-rwx "$guest/home"
+          if sudo -n -u '#65534' test -w "$guest/source"; then
+            echo "::error::canonical source snapshot is writable by source UID"
+            exit 1
+          fi
+          if sudo -n -u '#65534' test -w "$guest/deps"; then
+            echo "::error::reviewed dependency cache is writable by source UID"
+            exit 1
+          fi
+
+          echo "guest_root=$guest" >> "$GITHUB_OUTPUT"
+          echo "GITLESS_SANDBOX_PREP_PASS"
+
+      - name: Execute immutable plan inside deprivileged network namespace
+        shell: bash
+        env:
+          GUEST_ROOT: ${{ steps.sandbox.outputs.guest_root }}
+          TRUSTED_JAVA_HOME: ${{ env.JAVA_HOME }}
+        run: |
+          set -euo pipefail
+          test -n "$GUEST_ROOT"
+          java_home="${JAVA_HOME:-}"
+          test -n "$java_home"
+          node_dir="$(dirname "$(command -v node)")"
+          test -x "$node_dir/node"
+          dotnet_dir="$(dirname "$(command -v dotnet)")"
+          test -x "$dotnet_dir/dotnet"
+          dotnet_root="${DOTNET_ROOT:-}"
+          test -n "$dotnet_root"
+
+          sudo -n /usr/bin/env -i \
+            PATH="$java_home/bin:$node_dir:$dotnet_dir:/usr/local/bin:/usr/bin:/bin" \
+            JAVA_HOME="$java_home" \
+            GRAALVM_HOME="$java_home" \
+            DOTNET_ROOT="$dotnet_root" \
+            HOME="$GUEST_ROOT/home" \
+            LANG=C.UTF-8 \
+            /usr/bin/unshare --net --pid --fork --mount-proc --ipc --uts \
+            /usr/bin/setpriv \
+              --reuid=65534 --regid=65534 --clear-groups \
+              --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs \
+            /bin/sh -eu -c '
+              test "$(id -u)" = "65534"
+              awk "NR > 2 { gsub(/:/, \"\", \$1); if (\$1 != \"lo\") exit 1 }" /proc/net/dev
+              for field in CapEff CapBnd CapAmb; do
+                value="$(sed -n "s/^$field:[[:space:]]*//p" /proc/self/status)"
+                test "$value" = "0000000000000000"
+              done
+              grep -q "^NoNewPrivs:[[:space:]]*1$" /proc/self/status
+              test -z "${GITHUB_TOKEN:-}"
+              test -z "${GH_TOKEN:-}"
+              test ! -e "$1/source/.git"
+              test ! -r "$2/README.md"
+              cd "$1/control"
+              exec python3 run-oreslang-test-plan.py \
+                --receipt ci/oreslang-receipt.json \
+                --source-dir "$1/source" \
+                --dependency-repo "$1/deps"
+            ' _ "$GUEST_ROOT" "$GITHUB_WORKSPACE"
+
+  cleanup-ephemeral-refs:
+    if: always() && github.event_name == 'push' && startsWith(github.ref_name, 'ci/oreslang-')
+    needs:
+      - prepare-dependencies
+      - verify-carrier
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Validate then delete only exact one-use carrier refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_ref="$GITHUB_REF_NAME"
+          auth_ref="ci/authorized-$GITHUB_SHA"
+          [[ "$source_ref" =~ ^ci/oreslang-[0-9a-f]{40}$ ]]
+          [[ "$auth_ref" =~ ^ci/authorized-[0-9a-f]{40}$ ]]
+
+          for ref in "$source_ref" "$auth_ref"; do
+            response="$RUNNER_TEMP/ref.json"
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref" > "$response"
+            python3 -I - "$response" "$ref" "$GITHUB_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          doc=json.loads(Path(sys.argv[1]).read_text())
+          obj=doc.get("object") if isinstance(doc,dict) else None
+          if (doc.get("ref") != "refs/heads/" + sys.argv[2]
+                  or not isinstance(obj,dict)
+                  or obj.get("type")!="commit"
+                  or obj.get("sha")!=sys.argv[3]):
+              raise SystemExit("ref moved or no longer binds exact carrier commit")
+          PY
+          done
+
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$auth_ref"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$source_ref"
+          echo "EPHEMERAL_REF_CLEANUP_PASS"

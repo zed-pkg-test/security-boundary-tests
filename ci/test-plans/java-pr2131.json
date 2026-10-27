@@ -1,0 +1,66 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.java",
+  "allowed_prs": [
+    2131
+  ],
+  "commands": [
+    {
+      "argv": [
+        "mvn",
+        "-o",
+        "-C",
+        "-B",
+        "-ntp",
+        "-Dsurefire.failIfNoSpecifiedTests=true",
+        "-DfailIfNoTests=true",
+        "-Dtest=GeneratorRuntimeTest,GeneratorCanonicalAdmissionTest,GeneratorLanguageTest,StaticGeneratorFunctionTest,IncrementalFunctorStaticTest,TreeShakerTest",
+        "test"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "stdout_contains": "BUILD SUCCESS"
+    },
+    {
+      "argv": [
+        "mvn",
+        "-o",
+        "-C",
+        "-B",
+        "-ntp",
+        "verify"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "stdout_contains": "BUILD SUCCESS"
+    }
+  ],
+  "maven_pom_blob_sha": "8cf5eb37b685834ba79860d2fb693efc319c51e3",
+  "maven_prefetch_artifacts": [
+    "org.apache.maven.surefire:surefire-junit-platform:3.5.2",
+    "org.junit.platform:junit-platform-engine:1.9.3",
+    "org.junit.platform:junit-platform-launcher:1.9.3",
+    "org.junit.platform:junit-platform-commons:1.9.3",
+    "org.junit.platform:junit-platform-launcher:1.11.4"
+  ],
+  "required_source_blobs": {
+    "pom.xml": "8cf5eb37b685834ba79860d2fb693efc319c51e3",
+    "docs/grammar.ebnf": "3e23e758a24f5b50b36567250b3faf8a0b5b7b39",
+    "examples/static-generator-v1.ores": "8fe38ba300ab9d1f7d17e0f0249e7a08be4a317d",
+    "src/main/java/dev/oreslang/ast/Ast.java": "cfca2e831a4f43bc7bc418da78ebe3b8095f0e7c",
+    "src/main/java/dev/oreslang/compiler/IncrementalCompiler.java": "6eb8cf86a00bff09f87d3d1483ba16b1d0f4b796",
+    "src/main/java/dev/oreslang/compiler/TreeShaker.java": "50f4c55cc55c10f7d1ef3a281d4e2260aec73423",
+    "src/main/java/dev/oreslang/nodes/OresEvalRootNode.java": "fa2d9521e1804b123e2295f905b75d4e1ceffccf",
+    "src/main/java/dev/oreslang/parser/Parser.java": "ec311a1dfe426338a1cac2c6f06db87fa32a27e8",
+    "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java": "898db2ea73b4ce62a55bab50b5bc5ac49124a3ca",
+    "src/main/java/dev/oreslang/types/OwnershipChecker.java": "580765395eea8393c6d4ee5352e8d215cb6527c9",
+    "src/main/java/dev/oreslang/types/TypeChecker.java": "4a9df87d7ecc87307972977a5f2b48b45077d407",
+    "src/test/java/dev/oreslang/GeneratorCanonicalAdmissionTest.java": "c9ff9c8bce78928f03db7a8312ff20b8d11882d1",
+    "src/test/java/dev/oreslang/GeneratorLanguageTest.java": "e52d422af8e1a02cc4679678e73d9be301c9dd49",
+    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "423cd02f63ece65de40f4449fc3d05f654b549dc",
+    "src/test/java/dev/oreslang/IncrementalFunctorStaticTest.java": "2438930abe4d91b942a1c9fdf0e10d2adcfea425",
+    "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java": "f9f977d8a64d4e704531b06354fc6505b07d6dee",
+    "src/test/java/dev/oreslang/TreeShakerTest.java": "09d6d85a37814b2c3a1e259e48a8b86b136e92f1",
+    "src/main/java/dev/oreslang/runtime/AsyncRuntime.java": "a14f4390d005aa408a797a9f10611d005221365d"
+  }
+}
