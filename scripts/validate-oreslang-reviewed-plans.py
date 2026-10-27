@@ -67,6 +67,18 @@ REQUIRED_HARNESS_PATHS = {
         "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
         "src/test/java/dev/oreslang/TreeShakerTest.java",
     },
+    "llvm-pr1075.json": {
+        "CMakeLists.txt",
+        "src/main/cpp/oreslang/backend/LlvmCodegen.cpp",
+        "src/main/cpp/oreslang/frontend/Parser.cpp",
+        "src/main/cpp/oreslang/frontend/Parser.hpp",
+        "tests/native_generator_i64_e2e.rs",
+        "tests/fixtures/generator-v1-async-reject.ores",
+        "tests/fixtures/generator-v1-suspend-reject.ores",
+        "tests/fixtures/generator-v1-legacy-fnc-reject.ores",
+        "tests/fixtures/generator-v1-legacy-routine-reject.ores",
+        "tests/fixtures/generator-v1-legacy-async-fnc-reject.ores",
+    },
     "llvm-pr969.json": {
         SHARED_FIXTURE,
         "CMakeLists.txt",
