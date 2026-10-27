@@ -654,3 +654,22 @@ fn duplicate_query_parameters_fail_closed_after_percent_decoding() {
         assert_eq!(h.call("GET", path, Some("reader"), None, &[]).0, 400, "{path}");
     }
 }
+
+
+#[test]
+fn oversized_or_excessive_query_inputs_fail_closed() {
+    let h = Harness::new();
+
+    let oversized = format!(
+        "/v1alpha1/default/workload?limit=1&padding={}",
+        "x".repeat(9000)
+    );
+    assert_eq!(h.call("GET", &oversized, Some("reader"), None, &[]).0, 400);
+
+    let many = (0..33)
+        .map(|index| format!("k{index}=v"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let path = format!("/v1alpha1/default/workload?{many}");
+    assert_eq!(h.call("GET", &path, Some("reader"), None, &[]).0, 400);
+}
