@@ -1,0 +1,18 @@
+# Security ownership for the private Oreslang exact-tree carrier.
+# Branch protection must require CODEOWNER review for these rules to be authoritative.
+* @ORESoftware
+
+/.github/CODEOWNERS @ORESoftware
+/.github/workflows/oreslang-exact-tree-carrier.yml @ORESoftware
+/Cargo.toml @ORESoftware
+/reference/ @ORESoftware
+/scripts/verify-oreslang-private-carrier.rs @ORESoftware
+/scripts/test-oreslang-private-carrier.rs @ORESoftware
+/scripts/test-carrier-governance-policy.rs @ORESoftware
+/scripts/verify-oreslang-external-anchor.rs @ORESoftware
+/scripts/test-oreslang-external-anchor.rs @ORESoftware
+/scripts/verify-oreslang-control-dispatch.rs @ORESoftware
+/scripts/test-oreslang-control-dispatch.rs @ORESoftware
+/scripts/verify-live-carrier.rs @ORESoftware
+/tools/trusted-plan/ @ORESoftware
+/ci/test-plans/ @ORESoftware
