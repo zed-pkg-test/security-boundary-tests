@@ -54,7 +54,7 @@
     "src/main/java/dev/oreslang/types/TypeChecker.java": "d6cb6959f32e633509d0b2db7b42934786e8ce9a",
     "src/test/java/dev/oreslang/GeneratorCanonicalAdmissionTest.java": "c9ff9c8bce78928f03db7a8312ff20b8d11882d1",
     "src/test/java/dev/oreslang/GeneratorLanguageTest.java": "e52d422af8e1a02cc4679678e73d9be301c9dd49",
-    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "625032d4d386771695d9f268ddd897563c2e946f",
+    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "423cd02f63ece65de40f4449fc3d05f654b549dc",
     "src/main/java/dev/oreslang/runtime/AsyncRuntime.java": "a14f4390d005aa408a797a9f10611d005221365d"
   }
 }
