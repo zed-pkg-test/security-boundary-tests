@@ -3,6 +3,7 @@ use std::{env, fs, path::{Path, PathBuf}};
 
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILES: usize = 4096;
+const MAX_SOURCE_DEPTH: usize = 64;
 
 fn validate_source(source: &str) -> Result<(), &'static str> {
     if !source.contains("define module") || !source.contains("end") {
@@ -30,6 +31,13 @@ fn validate_source(source: &str) -> Result<(), &'static str> {
 }
 
 fn collect_sources(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
+    collect_sources_at(dir, paths, 0)
+}
+
+fn collect_sources_at(dir: &Path, paths: &mut Vec<PathBuf>, depth: usize) -> Result<(), String> {
+    if depth > MAX_SOURCE_DEPTH {
+        return Err(format!("SDK source tree exceeds depth bound of {MAX_SOURCE_DEPTH}"));
+    }
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
@@ -38,7 +46,7 @@ fn collect_sources(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
             return Err(format!("symlink in SDK source inventory: {}", path.display()));
         }
         if file_type.is_dir() {
-            collect_sources(&path, paths)?;
+            collect_sources_at(&path, paths, depth + 1)?;
         } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "ores") {
             if paths.len() >= MAX_SOURCE_FILES {
                 return Err(format!(
@@ -165,6 +173,26 @@ mod tests {
 
         let mut paths = vec![PathBuf::new(); MAX_SOURCE_FILES];
         assert!(collect_sources(&src, &mut paths).is_err());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_excessive_source_tree_depth() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-sdk-depth-{}-{nonce}", std::process::id()));
+        let mut dir = root.join("src");
+        fs::create_dir_all(&dir).unwrap();
+        for _ in 0..=MAX_SOURCE_DEPTH {
+            dir = dir.join("nested");
+            fs::create_dir(&dir).unwrap();
+        }
+        fs::write(dir.join("deep.ores"), VALID).unwrap();
+
+        let mut paths = Vec::new();
+        assert!(collect_sources(&root.join("src"), &mut paths).is_err());
 
         fs::remove_dir_all(&root).unwrap();
     }
