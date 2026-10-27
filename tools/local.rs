@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 const VALID_KINDS: [&str; 5] = ["Workload", "Deployment", "Node", "Lease", "Reservation"];
+const MAX_CONTAINERS: usize = 256;
 
 pub fn validate(value: &Value) -> Result<(), String> {
     let object = value.as_object().ok_or_else(|| "manifest must be an object".to_string())?;
@@ -163,6 +164,9 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
     }
     let containers = pod_spec.get("containers").and_then(Value::as_array)
         .filter(|items| !items.is_empty()).ok_or_else(|| "containers must be a nonempty array".to_string())?;
+    if containers.len() > MAX_CONTAINERS {
+        return Err(format!("containers exceed supported bound of {MAX_CONTAINERS}"));
+    }
     let mut out_containers = Vec::new();
     let mut container_names = HashSet::new();
     for container in containers {
