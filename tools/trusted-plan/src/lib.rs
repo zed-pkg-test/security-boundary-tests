@@ -20,6 +20,7 @@ const MAX_PLAN_BYTES: u64 = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ALLOWED_PRS: usize = 128;
 const MAX_REPO_IDENTITY_BYTES: usize = 256;
+const MAX_ENV_VALUE_BYTES: usize = 16 * 1024;
 const SAFE_ENV_KEYS: [&str; 6] = [
     "PATH",
     "JAVA_HOME",
@@ -351,11 +352,17 @@ pub fn validate_command(command: &Value, root: &Path) -> Result<ValidatedCommand
     })
 }
 
+fn safe_env_value(value: &str) -> bool {
+    value.len() <= MAX_ENV_VALUE_BYTES && !value.contains('\0')
+}
+
 pub fn safe_env() -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for key in SAFE_ENV_KEYS {
         if let Ok(value) = env::var(key) {
-            out.insert(key.into(), value);
+            if safe_env_value(&value) {
+                out.insert(key.into(), value);
+            }
         }
     }
     out.insert("CI".into(), "true".into());
@@ -697,6 +704,15 @@ mod tests {
         let root = fs::canonicalize(t.0.join("private-oreslang-source")).unwrap();
         assert!(confined_cwd(&root, &"x".repeat(MAX_PATH_BYTES + 1)).is_err());
         assert!(confined_cwd(&root, "bad\0cwd").is_err());
+    }
+
+    #[test]
+    fn safe_environment_values_are_bounded() {
+        assert!(safe_env_value(""));
+        assert!(safe_env_value("x"));
+        assert!(safe_env_value(&"x".repeat(MAX_ENV_VALUE_BYTES)));
+        assert!(!safe_env_value(&"x".repeat(MAX_ENV_VALUE_BYTES + 1)));
+        assert!(!safe_env_value("bad\0value"));
     }
 
     #[test]
