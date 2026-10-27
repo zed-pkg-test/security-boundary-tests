@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
+const MAX_SOURCE_FILES: usize = 4096;
 
 fn imports(source: &str) -> Vec<String> {
     // Match the legacy check's from\s+"..." pattern without a regex dependency.
@@ -45,6 +46,11 @@ fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) -> Result<(), St
         if kind.is_dir() && recursive {
             collect(&path, true, out)?;
         } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "ores") {
+            if out.len() >= MAX_SOURCE_FILES {
+                return Err(format!(
+                    "source inventory exceeds {MAX_SOURCE_FILES} Oreslang files"
+                ));
+            }
             out.push(path);
         }
     }
@@ -209,6 +215,14 @@ mod tests {
         )
         .unwrap();
         assert!(check(&root).unwrap_err().contains("source exceeds"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_source_inventory() {
+        let root = fixture();
+        let mut out = vec![PathBuf::new(); MAX_SOURCE_FILES];
+        assert!(collect(&root.join("src"), true, &mut out).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 
