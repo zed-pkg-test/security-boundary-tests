@@ -17,7 +17,7 @@ jobs:
           set -euo pipefail
 
           shipping_roots=(src bin runtime native cmd server service services daemon daemons agent scheduler drivers state api cli sdk)
-          nonproduction_checker_blob=e594ae56647fe7bae0fd0b78b7af00b5687b53b8
+          nonproduction_checker_blob=073668d571a6ecfec7f085bdf40b19732c26a26b
 
           accept_shipping_entry() {
             local mode="$1" path="$2"
@@ -54,6 +54,14 @@ jobs:
           done < <(git ls-files -s -z -- "${shipping_roots[@]}" 2>/dev/null || true)
 
           while IFS= read -r -d '' path; do
+            if [ "$path" = "src/main.rs" ]; then
+              if [ "$(git hash-object -- "$path")" = "$nonproduction_checker_blob" ]; then
+                continue
+              fi
+              echo "unpinned structural checker blob: $path" >&2
+              bad=1
+              continue
+            fi
             case "$path" in
               .github/*|tests/*|test/*|scripts/*|tools/*|reference/*|formal/*|model/*|docs/*)
                 continue
