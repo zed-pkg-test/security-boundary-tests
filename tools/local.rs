@@ -7,6 +7,8 @@ const VALID_KINDS: [&str; 5] = ["Workload", "Deployment", "Node", "Lease", "Rese
 const MAX_CONTAINERS: usize = 256;
 const MAX_IDENTITY_BYTES: usize = 256;
 const MAX_IMAGE_BYTES: usize = 2048;
+const MAX_LABELS: usize = 256;
+const MAX_LABEL_BYTES: usize = 256;
 
 fn bounded_text<'a>(
     value: Option<&'a Value>,
@@ -109,6 +111,24 @@ fn exact_or_subset(map: &Map<String, Value>, allowed: &[&str]) -> bool {
     map.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
+fn validate_labels(labels: &Map<String, Value>) -> Result<(), String> {
+    if labels.len() > MAX_LABELS {
+        return Err("Kubernetes label map exceeds supported bound".into());
+    }
+    for (key, value) in labels {
+        if key.is_empty() || key.len() > MAX_LABEL_BYTES || key.contains('\0') {
+            return Err("invalid Kubernetes label key".into());
+        }
+        let value = value
+            .as_str()
+            .ok_or_else(|| "Kubernetes label value must be text".to_string())?;
+        if value.len() > MAX_LABEL_BYTES || value.contains('\0') {
+            return Err("invalid Kubernetes label value".into());
+        }
+    }
+    Ok(())
+}
+
 pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
     let root = value.as_object().ok_or_else(|| "only apps/v1 Deployment is supported".to_string())?;
     if root.get("apiVersion").and_then(Value::as_str) != Some("apps/v1")
@@ -148,6 +168,7 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
         return Err("only matchLabels selectors are supported".into());
     }
     let match_labels = selector["matchLabels"].as_object().unwrap();
+    validate_labels(match_labels)?;
     let template = spec.get("template").and_then(Value::as_object)
         .ok_or_else(|| "unsupported pod template fields".to_string())?;
     if !exact_or_subset(template, &["metadata", "spec"]) {
@@ -162,6 +183,7 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
         .ok_or_else(|| "invalid pod template".to_string())?;
     let pod_labels = pod_metadata.get("labels").and_then(Value::as_object)
         .cloned().unwrap_or_default();
+    validate_labels(&pod_labels)?;
     if &pod_labels != match_labels {
         return Err("template labels must exactly match selector in import subset".into());
     }
