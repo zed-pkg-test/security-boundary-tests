@@ -28,3 +28,7 @@ path = "tests/external_anchor.rs"
 [[test]]
 name = "private-carrier"
 path = "tests/private_carrier.rs"
+
+[[test]]
+name = "governance"
+path = "tests/governance.rs"
