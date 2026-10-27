@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILES: usize = 4096;
 const MAX_IMPORTS_PER_SOURCE: usize = 4096;
+const MAX_SOURCE_DEPTH: usize = 64;
 
 fn imports(source: &str) -> Vec<String> {
     // Match the legacy check's from\s+"..." pattern without a regex dependency.
@@ -37,6 +38,18 @@ fn imports(source: &str) -> Vec<String> {
 }
 
 fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    collect_at(dir, recursive, out, 0)
+}
+
+fn collect_at(
+    dir: &Path,
+    recursive: bool,
+    out: &mut Vec<PathBuf>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > MAX_SOURCE_DEPTH {
+        return Err(format!("source tree exceeds depth bound of {MAX_SOURCE_DEPTH}"));
+    }
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
         let path = entry.path();
@@ -45,7 +58,7 @@ fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) -> Result<(), St
             return Err(format!("symlink in source inventory: {}", path.display()));
         }
         if kind.is_dir() && recursive {
-            collect(&path, true, out)?;
+            collect_at(&path, true, out, depth + 1)?;
         } else if kind.is_file() && path.extension().is_some_and(|ext| ext == "ores") {
             if out.len() >= MAX_SOURCE_FILES {
                 return Err(format!(
@@ -228,6 +241,21 @@ mod tests {
         let root = fixture();
         let mut out = vec![PathBuf::new(); MAX_SOURCE_FILES];
         assert!(collect(&root.join("src"), true, &mut out).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_excessive_source_tree_depth() {
+        let root = fixture();
+        let mut dir = root.join("src");
+        for _ in 0..=MAX_SOURCE_DEPTH {
+            dir = dir.join("nested");
+            fs::create_dir(&dir).unwrap();
+        }
+        fs::write(dir.join("deep.ores"), "return {}\n").unwrap();
+
+        assert!(check(&root).unwrap_err().contains("source tree exceeds depth bound"));
+
         fs::remove_dir_all(root).unwrap();
     }
 
