@@ -25,7 +25,7 @@ fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_links_and_ids(html: &str) -> (Vec<String>, BTreeSet<String>) {
+fn parse_links_and_ids(html: &str) -> Result<(Vec<String>, BTreeSet<String>), String> {
     let tag_re = Regex::new(r#"(?is)<\s*([a-zA-Z][a-zA-Z0-9:-]*)\b([^>]*)>"#).unwrap();
     let attr_re = Regex::new(r#"(?is)\b([a-zA-Z_:][a-zA-Z0-9_:.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')"#).unwrap();
     let mut links = Vec::new();
@@ -40,15 +40,15 @@ fn parse_links_and_ids(html: &str) -> (Vec<String>, BTreeSet<String>) {
                 .or_else(|| attr.get(3))
                 .map(|m| m.as_str())
                 .unwrap_or("");
-            if name == "id" {
-                ids.insert(value.to_owned());
+            if name == "id" && !ids.insert(value.to_owned()) {
+                return Err(format!("duplicate HTML id: {value}"));
             }
             if tag == "a" && name == "href" {
                 links.push(value.to_owned());
             }
         }
     }
-    (links, ids)
+    Ok((links, ids))
 }
 
 fn percent_decode(input: &str) -> String {
@@ -110,7 +110,7 @@ fn internal_links_resolve_and_anchors_exist() {
 
     for file in files {
         let html = fs::read_to_string(&file).unwrap();
-        let (links, _) = parse_links_and_ids(&html);
+        let (links, _) = parse_links_and_ids(&html).unwrap();
         for href in links {
             if is_external(&href) {
                 continue;
@@ -129,7 +129,7 @@ fn internal_links_resolve_and_anchors_exist() {
             assert!(target.is_file(), "{}: missing link {href}", file.display());
             if let Some(fragment) = fragment.filter(|f| !f.is_empty()) {
                 let target_html = fs::read_to_string(&target).unwrap();
-                let (_, ids) = parse_links_and_ids(&target_html);
+                let (_, ids) = parse_links_and_ids(&target_html).unwrap();
                 assert!(ids.contains(fragment), "{}: missing anchor #{fragment} in {}", file.display(), target.display());
             }
         }
