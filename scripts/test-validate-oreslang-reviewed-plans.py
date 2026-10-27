@@ -207,6 +207,12 @@ class ReviewedPlanValidatorTest(unittest.TestCase):
                 "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
                 "src/test/java/dev/oreslang/TreeShakerTest.java",
             },
+            "js-pr85.json": {
+                "package.json",
+                "src/program-v2.mjs",
+                "src/program-ir-v2.mjs",
+                "tests/generator-v1.test.mjs",
+            },
             "llvm-pr1075.json": {
                 "CMakeLists.txt",
                 "src/main/cpp/oreslang/backend/LlvmCodegen.cpp",
