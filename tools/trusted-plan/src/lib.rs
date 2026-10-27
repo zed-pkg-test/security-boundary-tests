@@ -69,7 +69,8 @@ fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
 }
 
 fn read_regular_bounded(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, Denied> {
-    let meta = fs::symlink_metadata(path).map_err(|_| deny(format!("{label} missing or unsafe")))?;
+    let meta =
+        fs::symlink_metadata(path).map_err(|_| deny(format!("{label} missing or unsafe")))?;
     if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > max_bytes {
         return Err(deny(format!("{label} missing or unsafe")));
     }
