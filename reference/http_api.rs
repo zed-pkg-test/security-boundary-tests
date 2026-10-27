@@ -21,6 +21,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 const MAX_QUERY_BYTES: usize = 8192;
 const MAX_QUERY_PARAMS: usize = 32;
+const MAX_ROUTE_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiError {
@@ -612,6 +613,9 @@ fn dispatch(
 ) -> Result<(u16, Value), ApiError> {
     let url = request.url().to_string();
     let (path, query_text) = url.split_once('?').unwrap_or((&url, ""));
+    if path.len() > MAX_ROUTE_BYTES {
+        return Err(ApiError::BadRequest("route path too large".into()));
+    }
     let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     if parts.len() < 3 || parts[0] != "v1alpha1" {
         return Err(ApiError::BadRequest("invalid route".into()));
