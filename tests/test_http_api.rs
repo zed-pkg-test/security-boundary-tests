@@ -673,3 +673,14 @@ fn oversized_or_excessive_query_inputs_fail_closed() {
     let path = format!("/v1alpha1/default/workload?{many}");
     assert_eq!(h.call("GET", &path, Some("reader"), None, &[]).0, 400);
 }
+
+
+#[test]
+fn oversized_route_path_fails_closed() {
+    let h = Harness::new();
+    let path = format!(
+        "/v1alpha1/default/workload/{}",
+        "x".repeat(5000)
+    );
+    assert_eq!(h.call("GET", &path, Some("reader"), None, &[]).0, 400);
+}
