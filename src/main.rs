@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILES: usize = 4096;
+const MAX_IMPORTS_PER_SOURCE: usize = 4096;
 
 fn imports(source: &str) -> Vec<String> {
     // Match the legacy check's from\s+"..." pattern without a regex dependency.
@@ -74,7 +75,11 @@ fn check_source(root: &Path, path: &Path) -> Result<(), String> {
         return Err(deny("tab character"));
     }
     let canonical_root = fs::canonicalize(root).map_err(|e| format!("{}: {e}", root.display()))?;
-    for import in imports(&source) {
+    let imports = imports(&source);
+    if imports.len() > MAX_IMPORTS_PER_SOURCE {
+        return Err(deny("too many import declarations"));
+    }
+    for import in imports {
         if import.starts_with('.') {
             let candidate = path.parent().unwrap_or(Path::new(".")).join(&import);
             let metadata = fs::symlink_metadata(&candidate)
@@ -223,6 +228,18 @@ mod tests {
         let root = fixture();
         let mut out = vec![PathBuf::new(); MAX_SOURCE_FILES];
         assert!(collect(&root.join("src"), true, &mut out).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_excessive_import_fanout() {
+        let root = fixture();
+        let mut source = "from \"./0.ores\"\n".repeat(MAX_IMPORTS_PER_SOURCE + 1);
+        source.push_str("return {}\n");
+        fs::write(root.join("src/deep/1.ores"), source).unwrap();
+
+        assert!(check(&root).unwrap_err().contains("too many import declarations"));
+
         fs::remove_dir_all(root).unwrap();
     }
 
