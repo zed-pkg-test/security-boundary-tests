@@ -21,7 +21,7 @@
     "src/main/cpp/oreslang/backend/LlvmCodegen.cpp": "fcf2fd2f45a86948f255fb294e492f68cb88e873",
     "src/main/cpp/oreslang/frontend/Parser.cpp": "4b9be160f62fd01c48e9b641a972f60ff0390549",
     "src/main/cpp/oreslang/frontend/Parser.hpp": "5a1807bb819272ee5e6cd8dc6519a4edcac45a55",
-    "tests/native_generator_i64_e2e.rs": "919a1b534602485455af11821a7496b903728cff",
+    "tests/native_generator_i64_e2e.rs": "d5e9a0358706e078999c8b4f51b881b56af1667d",
     "tests/fixtures/generator-v1-async-reject.ores": "01abf548cada4ed0a94d61add568cfb6b3ac0184",
     "tests/fixtures/generator-v1-suspend-reject.ores": "5574c065188ab0a9283468e7e1635afd283361ba",
     "tests/fixtures/generator-v1-legacy-fnc-reject.ores": "b7de1a0ca2c6bb479f49c4dcec48b65cdaea845f",
