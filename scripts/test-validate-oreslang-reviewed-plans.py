@@ -193,6 +193,37 @@ class ReviewedPlanValidatorTest(unittest.TestCase):
                 with self.assertRaisesRegex(validator.Denied, "mandatory harness pins"):
                     validator.validate_plan(self.write(name, plan))
 
+    def test_generator_plan_mandatory_pin_sets_are_locked(self):
+        expected = {
+            "java-pr2130.json": {
+                "src/main/java/dev/oreslang/runtime/AsyncRuntime.java",
+                "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java",
+                "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java",
+            },
+            "java-pr2131.json": {
+                "src/main/java/dev/oreslang/runtime/AsyncRuntime.java",
+                "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java",
+                "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java",
+                "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
+                "src/test/java/dev/oreslang/TreeShakerTest.java",
+            },
+            "llvm-pr1075.json": {
+                "CMakeLists.txt",
+                "src/main/cpp/oreslang/backend/LlvmCodegen.cpp",
+                "src/main/cpp/oreslang/frontend/Parser.cpp",
+                "tests/native_generator_i64_e2e.rs",
+                "tests/fixtures/generator-v1-async-reject.ores",
+                "tests/fixtures/generator-v1-suspend-reject.ores",
+            },
+        }
+        for name, required in expected.items():
+            with self.subTest(name=name):
+                self.assertIn(name, validator.REQUIRED_HARNESS_PATHS)
+                self.assertTrue(
+                    required.issubset(validator.REQUIRED_HARNESS_PATHS[name]),
+                    f"{name} lost mandatory generator harness pins",
+                )
+
     def test_all_backends_must_share_fixture_blob(self):
         java = self.write("java-pr1947.json", self.java_plan())
         llvm = self.write("llvm-pr969.json", self.llvm_plan())
