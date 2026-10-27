@@ -4,6 +4,7 @@ use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_FIXTURE_BYTES: u64 = 1_048_576;
 const MAX_DEMO_ITEMS: usize = 4096;
+const MAX_IDENTITY_BYTES: usize = 256;
 
 fn check_demo(data: &Value) -> Result<(), &'static str> {
     for field in ["nodes", "workloads"] {
@@ -29,6 +30,13 @@ fn check_demo(data: &Value) -> Result<(), &'static str> {
                 .and_then(Value::as_str)
                 .filter(|value| !value.is_empty())
                 .ok_or("demo item is missing metadata.namespace")?;
+            if name.len() > MAX_IDENTITY_BYTES
+                || name.contains('\0')
+                || namespace.len() > MAX_IDENTITY_BYTES
+                || namespace.contains('\0')
+            {
+                return Err("demo resource identity exceeds bounds");
+            }
             if !identities.insert((namespace, name)) {
                 return Err("duplicate demo resource identity");
             }
@@ -135,6 +143,22 @@ mod tests {
             "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
         });
         assert!(check_demo(&duplicate).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_or_nul_demo_identities() {
+        for (name, namespace) in [
+            ("x".repeat(MAX_IDENTITY_BYTES + 1), "system".to_string()),
+            ("bad\0name".to_string(), "system".to_string()),
+            ("n1".to_string(), "x".repeat(MAX_IDENTITY_BYTES + 1)),
+            ("n1".to_string(), "bad\0namespace".to_string()),
+        ] {
+            let data = json!({
+                "nodes":[{"metadata":{"name":name,"namespace":namespace},"status":{"phase":"Ready"}}],
+                "workloads":[{"metadata":{"name":"w","namespace":"default"},"status":{"phase":"Running"}}]
+            });
+            assert!(check_demo(&data).is_err());
+        }
     }
 
     #[test]
