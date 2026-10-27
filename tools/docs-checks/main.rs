@@ -6,6 +6,7 @@ const MAX_DOC_BYTES: u64 = 1_048_576;
 const MAX_DOC_FILES: usize = 4096;
 const MAX_LINKS_PER_DOC: usize = 4096;
 const MAX_LINK_TARGET_BYTES: usize = 4096;
+const MAX_DOC_DEPTH: usize = 64;
 const REPOSITORIES: [&str; 9] = [
     "orestra", "orestra-api", "orestra-cli", "orestra-sdk",
     "orestra-state", "orestra-drivers", "orestra-ui",
@@ -13,6 +14,18 @@ const REPOSITORIES: [&str; 9] = [
 ];
 
 fn collect_md(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    collect_md_at(root, dir, files, 0)
+}
+
+fn collect_md_at(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > MAX_DOC_DEPTH {
+        return Err(format!("documentation tree exceeds depth bound of {MAX_DOC_DEPTH}"));
+    }
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
@@ -24,7 +37,7 @@ fn collect_md(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), S
             if path.file_name().is_some_and(|n| n == ".git" || n == "target") {
                 continue;
             }
-            collect_md(root, &path, files)?;
+            collect_md_at(root, &path, files, depth + 1)?;
         } else if kind.is_file() && path.extension().is_some_and(|e| e == "md") {
             if files.len() >= MAX_DOC_FILES {
                 return Err(format!(
@@ -257,6 +270,26 @@ mod tests {
         fs::write(root.join("one.md"), "# one\n").unwrap();
 
         let mut files = vec![PathBuf::new(); MAX_DOC_FILES];
+        assert!(collect_md(&root, &root, &mut files).is_err());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_excessive_documentation_tree_depth() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-docs-depth-{}-{nonce}", std::process::id()));
+        let mut dir = root.clone();
+        fs::create_dir_all(&dir).unwrap();
+        for _ in 0..=MAX_DOC_DEPTH {
+            dir = dir.join("nested");
+            fs::create_dir(&dir).unwrap();
+        }
+        fs::write(dir.join("deep.md"), "# deep\n").unwrap();
+
+        let mut files = Vec::new();
         assert!(collect_md(&root, &root, &mut files).is_err());
 
         fs::remove_dir_all(&root).unwrap();
