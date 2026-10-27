@@ -491,3 +491,27 @@ fn put_rejects_unbounded_keys_and_objects_without_advancing_revision() {
     ));
     assert_eq!(store.revision(), 0);
 }
+
+
+#[test]
+fn lease_identity_inputs_are_bounded() {
+    let store = MemoryStore::new();
+    let oversized = "x".repeat(257);
+
+    assert!(matches!(
+        store.elect(&oversized, "controller-a", 1, 1),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.elect("cluster", &oversized, 1, 1),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.elect("bad\0domain", "controller-a", 1, 1),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.elect("cluster", "bad\0holder", 1, 1),
+        Err(StoreError::Invalid(_))
+    ));
+}
