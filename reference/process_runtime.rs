@@ -14,7 +14,10 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+use std::os::unix::{
+    fs::{MetadataExt, PermissionsExt},
+    process::CommandExt,
+};
 
 const MAX_IDENTITY_BYTES: usize = 256;
 const HANDLE_HEX_BYTES: usize = 32;
@@ -91,6 +94,10 @@ struct RunningSandbox {
 
 pub struct ProcessRuntime {
     executable: PathBuf,
+    #[cfg(unix)]
+    executable_dev: u64,
+    #[cfg(unix)]
+    executable_ino: u64,
     agent_epoch: u64,
     sandboxes: HashMap<String, RunningSandbox>,
     by_workload: HashMap<(String, u64), String>,
@@ -115,6 +122,10 @@ impl ProcessRuntime {
         }
         Ok(Self {
             executable: executable.to_owned(),
+            #[cfg(unix)]
+            executable_dev: metadata.dev(),
+            #[cfg(unix)]
+            executable_ino: metadata.ino(),
             agent_epoch,
             sandboxes: HashMap::new(),
             by_workload: HashMap::new(),
@@ -124,6 +135,24 @@ impl ProcessRuntime {
 
     pub fn agent_epoch(&self) -> u64 {
         self.agent_epoch
+    }
+
+    fn validate_executable_identity(&self) -> Result<(), RuntimeError> {
+        let metadata = fs::symlink_metadata(&self.executable)
+            .map_err(|_| RuntimeError::Invalid("runtime executable changed".into()))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(RuntimeError::Invalid("runtime executable changed".into()));
+        }
+        #[cfg(unix)]
+        {
+            if metadata.dev() != self.executable_dev
+                || metadata.ino() != self.executable_ino
+                || metadata.permissions().mode() & 0o111 == 0
+            {
+                return Err(RuntimeError::Invalid("runtime executable changed".into()));
+            }
+        }
+        Ok(())
     }
 
     pub fn advance_epoch(&mut self, new_epoch: u64) -> Result<(), RuntimeError> {
@@ -235,6 +264,7 @@ impl ProcessRuntime {
             }
         }
 
+        self.validate_executable_identity()?;
         let mut command = Command::new(&self.executable);
         command
             .arg(duration_seconds.to_string())
@@ -460,6 +490,43 @@ mod tests {
             Err(RuntimeError::Invalid(_))
         ));
         assert!(rt.sandboxes.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_executable_identity_is_revalidated_before_spawn() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "orestra-runtime-replace-{}-{nonce}",
+            process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+
+        let executable = root.join("runner");
+        fs::write(&executable, "#!/bin/sh\n/bin/sleep \"$1\"\n").unwrap();
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&executable, permissions).unwrap();
+
+        let mut rt = ProcessRuntime::new(&executable, 7).unwrap();
+        let old = root.join("runner-old");
+        fs::rename(&executable, &old).unwrap();
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut replacement_permissions = fs::metadata(&executable).unwrap().permissions();
+        replacement_permissions.set_mode(0o700);
+        fs::set_permissions(&executable, replacement_permissions).unwrap();
+
+        assert!(matches!(
+            rt.start("work", 1, 7, "key", 1),
+            Err(RuntimeError::Invalid(_))
+        ));
+
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
