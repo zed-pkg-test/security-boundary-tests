@@ -83,28 +83,31 @@ fn parse_links_and_ids(html: &str) -> Result<(Vec<String>, BTreeSet<String>), St
     Ok((links, ids))
 }
 
-fn percent_decode(input: &str) -> String {
+fn percent_decode(input: &str) -> Result<String, &'static str> {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err("truncated percent encoding");
+            }
             let hex = |b: u8| match b {
                 b'0'..=b'9' => Some(b - b'0'),
                 b'a'..=b'f' => Some(b - b'a' + 10),
                 b'A'..=b'F' => Some(b - b'A' + 10),
                 _ => None,
             };
-            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push((hi << 4) | lo);
-                i += 3;
-                continue;
-            }
+            let hi = hex(bytes[i + 1]).ok_or("invalid percent encoding")?;
+            let lo = hex(bytes[i + 2]).ok_or("invalid percent encoding")?;
+            out.push((hi << 4) | lo);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
     }
-    String::from_utf8(out).expect("percent-decoded site path must be UTF-8")
+    String::from_utf8(out).map_err(|_| "percent-decoded path is not UTF-8")
 }
 
 fn is_external(href: &str) -> bool {
@@ -151,7 +154,8 @@ fn internal_links_resolve_and_anchors_exist() {
                 .split_once('#')
                 .map_or((href.as_str(), None), |(a, b)| (a, Some(b)));
             let path_part = before_fragment.split('?').next().unwrap_or("");
-            let rel = percent_decode(path_part);
+            let rel = percent_decode(path_part)
+                .unwrap_or_else(|reason| panic!("{}: invalid link {href}: {reason}", file.display()));
             let target = if rel.is_empty() {
                 file.clone()
             } else {
@@ -278,4 +282,13 @@ fn static_site_tree_depth_is_bounded() {
     assert!(collect_html(&root, &mut files).is_err());
 
     fs::remove_dir_all(&root).unwrap();
+}
+
+
+#[test]
+fn malformed_percent_encoded_paths_are_rejected() {
+    assert_eq!(percent_decode("pages%2Fguide.html").unwrap(), "pages/guide.html");
+    for invalid in ["%", "%2", "%GG", "%ff"] {
+        assert!(percent_decode(invalid).is_err(), "{invalid}");
+    }
 }
