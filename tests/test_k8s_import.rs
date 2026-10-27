@@ -1,4 +1,4 @@
-use orestra_cli_tools::local::{cpu_millis, import_k8s_deployment, memory_bytes};
+use orestra_cli_tools::local::{cpu_millis, import_k8s_deployment, memory_bytes, validate};
 use serde_json::{json, Value};
 
 fn deployment() -> Value {
@@ -130,5 +130,38 @@ fn excessive_container_count_is_rejected() {
         container["name"] = json!(format!("c{index}"));
         containers.push(container);
     }
+    assert!(import_k8s_deployment(&document).is_err());
+}
+
+
+#[test]
+fn oversized_or_nul_identity_strings_are_rejected() {
+    let mut manifest = json!({
+        "apiVersion":"orestra.io/v1alpha1",
+        "kind":"Workload",
+        "metadata":{
+            "name":"x",
+            "namespace":"default",
+            "uid":"u",
+            "resourceVersion":"1",
+            "generation":1
+        },
+        "spec":{}
+    });
+    manifest["metadata"]["name"] = json!("x".repeat(257));
+    assert!(validate(&manifest).is_err());
+    manifest["metadata"]["name"] = json!("bad\0name");
+    assert!(validate(&manifest).is_err());
+
+    let mut document = deployment();
+    document["metadata"]["namespace"] = json!("n".repeat(257));
+    assert!(import_k8s_deployment(&document).is_err());
+
+    let mut document = deployment();
+    document["spec"]["template"]["spec"]["containers"][0]["name"] = json!("c".repeat(257));
+    assert!(import_k8s_deployment(&document).is_err());
+
+    let mut document = deployment();
+    document["spec"]["template"]["spec"]["containers"][0]["image"] = json!("i".repeat(2049));
     assert!(import_k8s_deployment(&document).is_err());
 }
