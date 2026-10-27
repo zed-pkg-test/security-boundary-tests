@@ -684,3 +684,12 @@ fn oversized_route_path_fails_closed() {
     );
     assert_eq!(h.call("GET", &path, Some("reader"), None, &[]).0, 400);
 }
+
+
+#[test]
+fn oversized_or_nul_bearer_identity_fails_closed() {
+    let h = Harness::new();
+    let oversized = format!("Bearer {}", "x".repeat(5000));
+    assert!(h.auth.authenticate(Some(&oversized)).is_err());
+    assert!(h.auth.authenticate(Some("Bearer bad\0token")).is_err());
+}
