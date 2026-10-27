@@ -4,6 +4,24 @@ use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_FIXTURE_BYTES: u64 = 1_048_576;
 const MAX_DEMO_ITEMS: usize = 4096;
+const MAX_IDENTITY_BYTES: usize = 256;
+const MAX_PHASE_BYTES: usize = 128;
+
+fn bounded_text<'a>(
+    value: Option<&'a Value>,
+    missing: &'static str,
+    invalid: &'static str,
+    max_bytes: usize,
+) -> Result<&'a str, &'static str> {
+    let text = value
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or(missing)?;
+    if text.len() > max_bytes || text.contains('\0') {
+        return Err(invalid);
+    }
+    Ok(text)
+}
 
 fn check_demo(data: &Value) -> Result<(), &'static str> {
     for field in ["nodes", "workloads"] {
@@ -19,22 +37,30 @@ fn check_demo(data: &Value) -> Result<(), &'static str> {
             let metadata = item["metadata"]
                 .as_object()
                 .ok_or("demo item is missing metadata")?;
-            let name = metadata
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .ok_or("demo item is missing metadata.name")?;
-            let namespace = metadata
-                .get("namespace")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .ok_or("demo item is missing metadata.namespace")?;
+            let name = bounded_text(
+                metadata.get("name"),
+                "demo item is missing metadata.name",
+                "demo item metadata.name exceeds identity bound",
+                MAX_IDENTITY_BYTES,
+            )?;
+            let namespace = bounded_text(
+                metadata.get("namespace"),
+                "demo item is missing metadata.namespace",
+                "demo item metadata.namespace exceeds identity bound",
+                MAX_IDENTITY_BYTES,
+            )?;
             if !identities.insert((namespace, name)) {
                 return Err("duplicate demo resource identity");
             }
-            if !item["status"].as_object().is_some_and(|status| status.contains_key("phase")) {
-                return Err("demo item is missing status.phase");
-            }
+            let status = item["status"]
+                .as_object()
+                .ok_or("demo item is missing status.phase")?;
+            bounded_text(
+                status.get("phase"),
+                "demo item is missing status.phase",
+                "demo item status.phase exceeds text bound",
+                MAX_PHASE_BYTES,
+            )?;
         }
     }
     Ok(())
@@ -135,6 +161,39 @@ mod tests {
             "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
         });
         assert!(check_demo(&duplicate).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_or_nul_demo_identity_fields() {
+        let base = |name: Value, namespace: Value, phase: Value| json!({
+            "nodes":[{"metadata":{"name":name,"namespace":namespace},"status":{"phase":phase}}],
+            "workloads":[{"metadata":{"name":"w","namespace":"default"},"status":{"phase":"Running"}}]
+        });
+        assert!(check_demo(&base(
+            json!("n".repeat(MAX_IDENTITY_BYTES + 1)),
+            json!("system"),
+            json!("Ready")
+        )).is_err());
+        assert!(check_demo(&base(
+            json!("bad\0name"),
+            json!("system"),
+            json!("Ready")
+        )).is_err());
+        assert!(check_demo(&base(
+            json!("n"),
+            json!("n".repeat(MAX_IDENTITY_BYTES + 1)),
+            json!("Ready")
+        )).is_err());
+        assert!(check_demo(&base(
+            json!("n"),
+            json!("system"),
+            json!("p".repeat(MAX_PHASE_BYTES + 1))
+        )).is_err());
+        assert!(check_demo(&base(
+            json!("n"),
+            json!("system"),
+            json!("bad\0phase")
+        )).is_err());
     }
 
     #[test]
