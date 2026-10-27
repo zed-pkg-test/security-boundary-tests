@@ -1,0 +1,29 @@
+name: Source-free inverted physical schema admission model
+on:
+  pull_request:
+    paths:
+      - 'fixtures/source-free-inverted/**'
+      - '.github/workflows/source-free-inverted.yml'
+  push:
+    branches:
+      - 'audit/source-free-physical-schema-*'
+permissions:
+  contents: read
+jobs:
+  schema-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Compile independently authored source-free model
+        run: |
+          mkdir -p build/source-free-inverted
+          javac --release 21 -d build/source-free-inverted fixtures/source-free-inverted/PhysicalSchemaAdmissionModelTest.java
+      - name: Run schema substitution and column-isolation regressions
+        run: java -cp build/source-free-inverted PhysicalSchemaAdmissionModelTest
