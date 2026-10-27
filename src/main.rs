@@ -3,6 +3,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const MAX_SOURCE_BYTES: u64 = 1_048_576;
+
 fn imports(source: &str) -> Vec<String> {
     // Match the legacy check's from\s+"..." pattern without a regex dependency.
     let chars: Vec<char> = source.chars().collect();
@@ -50,6 +52,10 @@ fn collect(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) -> Result<(), St
 }
 
 fn check_source(root: &Path, path: &Path) -> Result<(), String> {
+    let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if meta.len() > MAX_SOURCE_BYTES {
+        return Err(format!("{}: source exceeds {MAX_SOURCE_BYTES} bytes", path.display()));
+    }
     let source = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let deny = |reason: &str| format!("{}: {reason}", path.display());
     if source.matches('{').count() != source.matches('}').count() {
@@ -191,6 +197,18 @@ mod tests {
             .contains("local import escapes repository root"));
 
         fs::remove_file(outside).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_oreslang_source() {
+        let root = fixture();
+        fs::write(
+            root.join("src/deep/0.ores"),
+            vec![b'x'; (MAX_SOURCE_BYTES + 1) as usize],
+        )
+        .unwrap();
+        assert!(check(&root).unwrap_err().contains("source exceeds"));
         fs::remove_dir_all(root).unwrap();
     }
 
