@@ -1,0 +1,32 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.js",
+  "allowed_prs": [
+    85
+  ],
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "--test",
+        "tests/generator-v1.test.mjs"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900
+    },
+    {
+      "argv": [
+        "node",
+        "--test"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800
+    }
+  ],
+  "required_source_blobs": {
+    "package.json": "df94f057ef290cc8d45973b4ddfb1d7e5149686d",
+    "src/program-v2.mjs": "e4b92435b9871b6c2fa1494c5f199151e89812b1",
+    "src/program-ir-v2.mjs": "2badc0a7f8768fe4b2f089aa59f4da58c15ae35b",
+    "tests/generator-v1.test.mjs": "36a0461a07683da30702f515fef6694d418adb84"
+  }
+}
