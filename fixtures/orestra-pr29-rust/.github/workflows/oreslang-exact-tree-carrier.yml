@@ -1,0 +1,172 @@
+name: Oreslang exact-tree private carrier
+on:
+  pull_request:
+    paths:
+      - '.github/CODEOWNERS'
+      - '.github/workflows/oreslang-exact-tree-carrier.yml'
+      - 'Cargo.toml'
+      - 'reference/**'
+      - 'scripts/verify-oreslang-private-carrier.rs'
+      - 'scripts/test-oreslang-private-carrier.rs'
+      - 'scripts/test-carrier-governance-policy.rs'
+      - 'scripts/verify-oreslang-external-anchor.rs'
+      - 'scripts/test-oreslang-external-anchor.rs'
+      - 'scripts/verify-oreslang-control-dispatch.rs'
+      - 'scripts/test-oreslang-control-dispatch.rs'
+      - 'scripts/verify-live-carrier.rs'
+      - 'tools/trusted-plan/**'
+      - 'ci/test-plans/**'
+  push:
+    branches:
+      - 'ci/oreslang-control-*'
+
+permissions:
+  contents: read
+
+jobs:
+  verifier-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Source-free Rust verifier regression suite
+        run: |
+          set -euo pipefail
+          cargo test --test oreslang-private-carrier
+          cargo test --test carrier-governance-policy
+          cargo test --test oreslang-external-anchor
+          cargo test --test oreslang-control-dispatch
+      - name: Trusted-plan runner regression suite
+        run: cargo test --manifest-path tools/trusted-plan/Cargo.toml --all-targets
+
+  verify-carrier:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'ci/oreslang-control-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Validate source-free control event before checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "orestra/orestra-conformance"
+          test "$GITHUB_REPOSITORY_ID" = "1426277234"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^ci/oreslang-control-[0-9a-f]{40}$ ]]
+
+      - name: Checkout source-free control commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+
+      - name: Verify source-free control dispatch with trusted parent
+        id: control
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export GIT_NO_REPLACE_OBJECTS=1
+          parent="$(git rev-parse HEAD^)"
+          [[ "$parent" =~ ^[0-9a-f]{40}$ ]]
+          trusted="$RUNNER_TEMP/oreslang-trusted-parent"
+          test ! -e "$trusted"
+          git worktree add --detach "$trusted" "$parent"
+
+          live="$RUNNER_TEMP/oreslang-live-carrier.json"
+          /usr/bin/gh api 'repos/orestra/orestra-conformance' > "$live"
+          cargo run --quiet --manifest-path "$trusted/Cargo.toml" --bin verify-live-carrier -- repository "$live"
+
+          result="$(cargo run --quiet --manifest-path "$trusted/Cargo.toml" --bin verify-oreslang-control-dispatch -- --repo-root "$GITHUB_WORKSPACE")"
+          printf '%s\n' "$result"
+
+          target="$(printf '%s\n' "$result" | sed -n 's/^CARRIER_COMMIT_SHA=//p')"
+          source_ref="$(printf '%s\n' "$result" | sed -n 's/^SOURCE_REF=//p')"
+          auth_ref="$(printf '%s\n' "$result" | sed -n 's/^AUTHORIZATION_REF=//p')"
+          control_parent="$(printf '%s\n' "$result" | sed -n 's/^CONTROL_PARENT=//p')"
+
+          [[ "$target" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$source_ref" =~ ^ci/oreslang-[0-9a-f]{40}$ ]]
+          test "$auth_ref" = "ci/authorized-$target"
+          test "$control_parent" = "$parent"
+
+          printf 'trusted=%s\n' "$trusted" >> "$GITHUB_OUTPUT"
+          printf 'target=%s\n' "$target" >> "$GITHUB_OUTPUT"
+          printf 'source_ref=%s\n' "$source_ref" >> "$GITHUB_OUTPUT"
+          printf 'auth_ref=%s\n' "$auth_ref" >> "$GITHUB_OUTPUT"
+          printf 'control_parent=%s\n' "$control_parent" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch only the committed receipt before private checkout
+        id: receipt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.control.outputs.target }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/oreslang-receipt.json"
+          test ! -e "$receipt"
+          /usr/bin/gh api             -H 'Accept: application/vnd.github.raw+json'             "repos/orestra/orestra-conformance/contents/ci/oreslang-receipt.json?ref=$TARGET"             > "$receipt"
+          test -s "$receipt"
+          test "$(wc -c < "$receipt")" -le 65536
+          printf 'path=%s\n' "$receipt" >> "$GITHUB_OUTPUT"
+
+      - name: Verify protected authorization before private checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORESLANG_CARRIER_HEAD: ${{ steps.control.outputs.target }}
+          ORESLANG_SOURCE_REF: ${{ steps.control.outputs.source_ref }}
+          ORESLANG_AUTHORIZATION_REF: ${{ steps.control.outputs.auth_ref }}
+          ORESLANG_CONTROL_PARENT: ${{ steps.control.outputs.control_parent }}
+        run: |
+          set -euo pipefail
+          cargo run --quiet             --manifest-path "${{ steps.control.outputs.trusted }}/Cargo.toml"             --bin verify-oreslang-external-anchor --             --receipt "${{ steps.receipt.outputs.path }}"
+
+      - name: Set up GraalVM JDK 25 before private source checkout
+        uses: graalvm/setup-graalvm@27b360dbb857524eaf0b4c4cef364d38e5b4f173
+        with:
+          java-version: '25'
+          distribution: graalvm
+          version: '25.3'
+          github-token: ${{ github.token }}
+
+      - name: Checkout exact authorized private carrier commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ steps.control.outputs.target }}
+          fetch-depth: 2
+          persist-credentials: false
+          clean: true
+
+      - name: Verify exact-tree carrier provenance
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ steps.control.outputs.target }}
+          GITHUB_REF_NAME: ${{ steps.control.outputs.source_ref }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          cargo run --quiet             --manifest-path "${{ steps.control.outputs.trusted }}/Cargo.toml"             --bin verify-oreslang-private-carrier
+
+      - name: Recheck protected authorization after private checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORESLANG_CARRIER_HEAD: ${{ steps.control.outputs.target }}
+          ORESLANG_SOURCE_REF: ${{ steps.control.outputs.source_ref }}
+          ORESLANG_AUTHORIZATION_REF: ${{ steps.control.outputs.auth_ref }}
+          ORESLANG_CONTROL_PARENT: ${{ steps.control.outputs.control_parent }}
+        run: |
+          set -euo pipefail
+          cargo run --quiet             --manifest-path "${{ steps.control.outputs.trusted }}/Cargo.toml"             --bin verify-oreslang-external-anchor --             --receipt ci/oreslang-receipt.json
+
+      - name: Execute immutable trusted test plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --quiet             --manifest-path "${{ steps.control.outputs.trusted }}/tools/trusted-plan/Cargo.toml" --             --receipt ci/oreslang-receipt.json             --source-dir private-oreslang-source
