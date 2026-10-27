@@ -8,12 +8,13 @@ import re
 import tempfile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PLAN_NAME = re.compile(r"^(java|llvm|net|js|format)-pr([1-9][0-9]*)\.json$")
+PLAN_NAME = re.compile(r"^(java|llvm|net|js|wasm|format)-pr([1-9][0-9]*)\.json$")
 SOURCE_REPOS = {
     "java": "ores-truffle-oreslang/oreslang-source.java",
     "llvm": "ores-truffle-oreslang/oreslang-source.llvm",
     "net": "ores-truffle-oreslang/oreslang-source.net",
     "js": "ores-truffle-oreslang/oreslang-source.js",
+    "wasm": "ores-truffle-oreslang/oreslang-source.wasm",
     "format": "ores-truffle-oreslang/oreslang-format",
 }
 ALLOWED_PLAN_FIELDS = {
@@ -68,6 +69,13 @@ REQUIRED_HARNESS_PATHS = {
         "src/test/java/dev/oreslang/IncrementalFunctorStaticTest.java",
         "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
         "src/test/java/dev/oreslang/TreeShakerTest.java",
+    },
+    "wasm-pr145.json": {
+        "package.json",
+        ".github/workflows/real-llvm.yml",
+        "scripts/verify-real-compiler.mjs",
+        "scripts/cleanup-real-compiler.mjs",
+        "tests/real-compiler-gate.test.mjs",
     },
     "net-pr180.json": {
         "Directory.Build.props",
