@@ -5,6 +5,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+const MAX_HTML_BYTES: u64 = 1_048_576;
+const MAX_HTML_FILES: usize = 4096;
+
 fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -19,6 +22,16 @@ fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
             }
             collect_html(&path, out)?;
         } else if kind.is_file() && path.extension().is_some_and(|e| e == "html") {
+            if out.len() >= MAX_HTML_FILES {
+                return Err(format!("static-site inventory exceeds {MAX_HTML_FILES} HTML files"));
+            }
+            let metadata = entry.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
+            if metadata.len() > MAX_HTML_BYTES {
+                return Err(format!(
+                    "static-site HTML exceeds {MAX_HTML_BYTES} bytes: {}",
+                    path.display()
+                ));
+            }
             out.push(path);
         }
     }
@@ -179,4 +192,32 @@ fn static_site_inventory_rejects_symlinks() {
     let mut files = Vec::new();
     assert!(collect_html(&root, &mut files).is_err());
     fs::remove_dir_all(&parent).unwrap();
+}
+
+
+#[test]
+fn static_site_inventory_and_html_size_are_bounded() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "orestra-site-bounds-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+
+    fs::write(
+        root.join("large.html"),
+        vec![b'x'; (MAX_HTML_BYTES + 1) as usize],
+    )
+    .unwrap();
+    let mut files = Vec::new();
+    assert!(collect_html(&root, &mut files).is_err());
+
+    fs::remove_file(root.join("large.html")).unwrap();
+    fs::write(root.join("one.html"), "<html></html>").unwrap();
+    let mut files = vec![PathBuf::new(); MAX_HTML_FILES];
+    assert!(collect_html(&root, &mut files).is_err());
+
+    fs::remove_dir_all(&root).unwrap();
 }
