@@ -181,3 +181,37 @@ fn capacity_plan_rejects_oversized_or_nul_node_names() {
         assert!(capacity_plan(&nodes, 1, 1).is_err());
     }
 }
+
+
+#[test]
+fn selector_label_maps_and_values_are_bounded() {
+    let mut excessive = deployment();
+    let mut labels = serde_json::Map::new();
+    for index in 0..257 {
+        labels.insert(format!("k{index}"), json!("v"));
+    }
+    excessive["spec"]["selector"]["matchLabels"] = Value::Object(labels.clone());
+    excessive["spec"]["template"]["metadata"]["labels"] = Value::Object(labels);
+    assert!(import_k8s_deployment(&excessive).is_err());
+
+    let mut oversized_key = deployment();
+    let mut labels = serde_json::Map::new();
+    labels.insert("x".repeat(257), json!("v"));
+    let labels = Value::Object(labels);
+    oversized_key["spec"]["selector"]["matchLabels"] = labels.clone();
+    oversized_key["spec"]["template"]["metadata"]["labels"] = labels;
+    assert!(import_k8s_deployment(&oversized_key).is_err());
+
+    let mut oversized_value = deployment();
+    let mut labels = serde_json::Map::new();
+    labels.insert("app".into(), json!("v".repeat(257)));
+    let labels = Value::Object(labels);
+    oversized_value["spec"]["selector"]["matchLabels"] = labels.clone();
+    oversized_value["spec"]["template"]["metadata"]["labels"] = labels;
+    assert!(import_k8s_deployment(&oversized_value).is_err());
+
+    let mut non_text = deployment();
+    non_text["spec"]["selector"]["matchLabels"] = json!({"app": 7});
+    non_text["spec"]["template"]["metadata"]["labels"] = json!({"app": 7});
+    assert!(import_k8s_deployment(&non_text).is_err());
+}
