@@ -4,6 +4,8 @@ use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_DOC_BYTES: u64 = 1_048_576;
 const MAX_DOC_FILES: usize = 4096;
+const MAX_LINKS_PER_DOC: usize = 4096;
+const MAX_LINK_TARGET_BYTES: usize = 4096;
 const REPOSITORIES: [&str; 9] = [
     "orestra", "orestra-api", "orestra-cli", "orestra-sdk",
     "orestra-state", "orestra-drivers", "orestra-ui",
@@ -35,7 +37,7 @@ fn collect_md(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), S
     Ok(())
 }
 
-fn markdown_targets(source: &str) -> Vec<&str> {
+fn markdown_targets(source: &str) -> Result<Vec<&str>, &'static str> {
     let mut matches = Vec::new();
     let mut rest = source;
     while let Some(start) = rest.find("](") {
@@ -43,11 +45,17 @@ fn markdown_targets(source: &str) -> Vec<&str> {
         let Some(end) = rest.find(')') else { break };
         let target = &rest[..end];
         if !target.is_empty() && !target.contains('\n') {
+            if target.len() > MAX_LINK_TARGET_BYTES {
+                return Err("Markdown link target exceeds size bound");
+            }
+            if matches.len() >= MAX_LINKS_PER_DOC {
+                return Err("Markdown link count exceeds per-file bound");
+            }
             matches.push(target);
         }
         rest = &rest[end + 1..];
     }
-    matches
+    Ok(matches)
 }
 
 fn check_links(root: &Path) -> Result<usize, String> {
@@ -62,7 +70,9 @@ fn check_links(root: &Path) -> Result<usize, String> {
             return Err(format!("documentation file exceeds {MAX_DOC_BYTES} bytes: {}", file.display()));
         }
         let src = fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
-        for target in markdown_targets(&src) {
+        let targets = markdown_targets(&src)
+            .map_err(|e| format!("{}: {e}", file.display()))?;
+        for target in targets {
             if target.starts_with("https://") || target.starts_with("http://")
                 || target.starts_with("mailto:") || target.starts_with('#') {
                 continue;
@@ -158,8 +168,11 @@ mod tests {
 
     #[test]
     fn parses_relative_markdown_links_without_touching_web_links() {
-        assert_eq!(markdown_targets("[a](docs/a.md) [b](#local)"), ["docs/a.md", "#local"]);
-        assert!(markdown_targets("[incomplete](").is_empty());
+        assert_eq!(
+            markdown_targets("[a](docs/a.md) [b](#local)").unwrap(),
+            ["docs/a.md", "#local"]
+        );
+        assert!(markdown_targets("[incomplete](").unwrap().is_empty());
     }
 
     #[test]
@@ -265,5 +278,14 @@ mod tests {
         let mut files = Vec::new();
         assert!(collect_md(&root, &root, &mut files).is_err());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_excessive_or_oversized_markdown_links() {
+        let many = "[x](a.md) ".repeat(MAX_LINKS_PER_DOC + 1);
+        assert!(markdown_targets(&many).is_err());
+
+        let long = format!("[x]({})", "a".repeat(MAX_LINK_TARGET_BYTES + 1));
+        assert!(markdown_targets(&long).is_err());
     }
 }
