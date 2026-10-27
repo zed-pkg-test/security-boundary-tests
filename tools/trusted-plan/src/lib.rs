@@ -65,9 +65,7 @@ fn validate_allowed_prs(allowed: &[Value], source_pr: i64) -> Result<(), Denied>
 }
 
 fn valid_source_repo(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_REPO_IDENTITY_BYTES
-        && !value.contains('\0')
+    !value.is_empty() && value.len() <= MAX_REPO_IDENTITY_BYTES && !value.contains('\0')
 }
 
 fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
