@@ -1,6 +1,8 @@
 //! SDK structural checks only; never claims compiler or runtime validation.
 use std::{env, fs, path::{Path, PathBuf}};
 
+const MAX_SOURCE_BYTES: u64 = 1_048_576;
+
 fn validate_source(source: &str) -> Result<(), &'static str> {
     if !source.contains("define module") || !source.contains("end") {
         return Err("missing module boundaries");
@@ -37,6 +39,10 @@ fn collect_sources(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
         if file_type.is_dir() {
             collect_sources(&path, paths)?;
         } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "ores") {
+            let metadata = entry.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
+            if metadata.len() > MAX_SOURCE_BYTES {
+                return Err(format!("SDK source exceeds {MAX_SOURCE_BYTES} bytes: {}", path.display()));
+            }
             paths.push(path);
         }
     }
@@ -116,6 +122,27 @@ mod tests {
         }
         assert_eq!(check(&root).unwrap(), 4);
         fs::write(nested.join("module-3.ores"), "define module broken as\nend\n").unwrap();
+        assert!(check(&root).is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_oreslang_source() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-sdk-size-{}-{nonce}", std::process::id()));
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        for i in 0..3 {
+            fs::write(src.join(format!("module-{i}.ores")), VALID).unwrap();
+        }
+        fs::write(
+            src.join("module-3.ores"),
+            vec![b'x'; (MAX_SOURCE_BYTES + 1) as usize],
+        )
+        .unwrap();
+
         assert!(check(&root).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
