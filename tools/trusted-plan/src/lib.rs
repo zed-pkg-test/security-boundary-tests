@@ -18,6 +18,7 @@ const MAX_LOG_BYTES: usize = 64 * 1024;
 const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
 const MAX_PLAN_BYTES: u64 = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
+const MAX_ALLOWED_PRS: usize = 128;
 const SAFE_ENV_KEYS: [&str; 6] = [
     "PATH",
     "JAVA_HOME",
@@ -47,6 +48,19 @@ fn object<'a>(v: &'a Value, msg: &str) -> Result<&'a Map<String, Value>, Denied>
 
 fn exact_keys(map: &Map<String, Value>, expected: &[&str]) -> bool {
     map.len() == expected.len() && expected.iter().all(|k| map.contains_key(*k))
+}
+
+fn validate_allowed_prs(allowed: &[Value], source_pr: i64) -> Result<(), Denied> {
+    if allowed.is_empty()
+        || allowed.len() > MAX_ALLOWED_PRS
+        || !allowed.iter().any(|v| v.as_i64() == Some(source_pr))
+        || allowed
+            .iter()
+            .any(|v| v.is_boolean() || v.as_i64().is_none_or(|n| n <= 0))
+    {
+        return Err(deny("source PR not authorized by test plan"));
+    }
+    Ok(())
 }
 
 fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
@@ -172,13 +186,7 @@ pub fn load_context_in(workspace: &Path, receipt_path: &Path) -> Result<Context,
         .get("allowed_prs")
         .and_then(Value::as_array)
         .ok_or_else(|| deny("source PR not authorized by test plan"))?;
-    if !allowed.iter().any(|v| v.as_i64() == Some(source_pr))
-        || allowed
-            .iter()
-            .any(|v| v.is_boolean() || v.as_i64().is_none_or(|n| n <= 0))
-    {
-        return Err(deny("source PR not authorized by test plan"));
-    }
+    validate_allowed_prs(allowed, source_pr)?;
     Ok(Context {
         source_repo: source_repo.into(),
         source_pr,
@@ -584,6 +592,21 @@ mod tests {
             "timeout_seconds":30,
             "stdout_contains":"TRUSTED_PLAN_SYNTHETIC_PASS"
         })
+    }
+
+    #[test]
+    fn allowed_pr_authorization_list_is_bounded() {
+        let allowed = (1..=MAX_ALLOWED_PRS as i64)
+            .map(Value::from)
+            .collect::<Vec<_>>();
+        assert!(validate_allowed_prs(&allowed, 7).is_ok());
+
+        let mut excessive = allowed.clone();
+        excessive.push(Value::from((MAX_ALLOWED_PRS + 1) as i64));
+        assert!(validate_allowed_prs(&excessive, 7).is_err());
+
+        let invalid = vec![Value::from(7), Value::Bool(true)];
+        assert!(validate_allowed_prs(&invalid, 7).is_err());
     }
 
     #[test]
