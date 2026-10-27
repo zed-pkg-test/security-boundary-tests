@@ -8,6 +8,7 @@ const MAX_KEY_BYTES: usize = 1024;
 const MAX_OBJECT_BYTES: usize = 1_048_576;
 const MAX_LEASE_IDENTITY_BYTES: usize = 256;
 const MAX_UID_BYTES: usize = 256;
+const MAX_CURSOR_BYTES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lease {
@@ -254,6 +255,9 @@ impl MemoryStore {
     }
 
     pub fn watch_after(&self, revision: u64, prefix: &str) -> Result<Vec<Event>, StoreError> {
+        if prefix.len() > MAX_KEY_BYTES || prefix.contains('\0') {
+            return Err(StoreError::Invalid("invalid watch prefix"));
+        }
         let state = self.state.lock().unwrap();
         if revision < state.compacted || revision > state.revision {
             return Err(StoreError::ResetRequired("invalid/compacted watch cursor: relist"));
@@ -265,6 +269,12 @@ impl MemoryStore {
     }
 
     pub fn watch_resume(&self, cursor: &str, prefix: &str) -> Result<Vec<Event>, StoreError> {
+        if prefix.len() > MAX_KEY_BYTES || prefix.contains('\0') {
+            return Err(StoreError::Invalid("invalid watch prefix"));
+        }
+        if cursor.is_empty() || cursor.len() > MAX_CURSOR_BYTES || cursor.contains('\0') {
+            return Err(StoreError::ResetRequired("invalid event cursor"));
+        }
         let mut parts = cursor.split(':');
         let Some(rev_text) = parts.next() else {
             return Err(StoreError::ResetRequired("invalid event cursor"));
