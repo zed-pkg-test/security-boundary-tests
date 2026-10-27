@@ -473,3 +473,21 @@ fn lease_renewal_never_rewinds_expiry_and_overflow_fails_closed() {
         Err(StoreError::Invalid(_))
     ));
 }
+
+#[test]
+fn put_rejects_unbounded_keys_and_objects_without_advancing_revision() {
+    let (store, lease) = setup();
+    let oversized_key = "k".repeat(1025);
+    assert!(matches!(
+        put(&store, &lease, &oversized_key, json!({"v":1}), None, 10),
+        Err(StoreError::Invalid(_))
+    ));
+    assert_eq!(store.revision(), 0);
+
+    let oversized = "x".repeat(1_048_577);
+    assert!(matches!(
+        put(&store, &lease, "a", json!({"payload":oversized}), None, 10),
+        Err(StoreError::Invalid(_))
+    ));
+    assert_eq!(store.revision(), 0);
+}

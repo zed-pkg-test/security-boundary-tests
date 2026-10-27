@@ -4,6 +4,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 
+const MAX_KEY_BYTES: usize = 1024;
+const MAX_OBJECT_BYTES: usize = 1_048_576;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lease {
     pub holder: String,
@@ -164,8 +167,13 @@ impl MemoryStore {
         lease: &Lease,
         now: i64,
     ) -> Result<u64, StoreError> {
-        if key.is_empty() || now < 0 {
-            return Err(StoreError::Invalid("empty object key or invalid tick"));
+        if key.is_empty() || key.len() > MAX_KEY_BYTES || now < 0 {
+            return Err(StoreError::Invalid("invalid object key or tick"));
+        }
+        let encoded = serde_json::to_vec(&object)
+            .map_err(|_| StoreError::Invalid("invalid object encoding"))?;
+        if encoded.len() > MAX_OBJECT_BYTES {
+            return Err(StoreError::Invalid("object exceeds size bound"));
         }
         let mut state = self.state.lock().unwrap();
         Self::check_leader(&state, domain, lease, now)?;

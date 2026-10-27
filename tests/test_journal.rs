@@ -341,3 +341,27 @@ fn independent_stores_cannot_overcommit_same_node() {
     assert_eq!(reservations.len(), 1);
     assert_eq!(reservations[0].2["spec"]["cpuMillis"], 600);
 }
+
+
+#[test]
+fn persisted_wal_disappearance_fails_closed() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("state.wal");
+    let store = JournaledStore::new(&path).unwrap();
+    let lease = store.elect("cluster", "leader", 10, 20).unwrap();
+    store.put("a", json!(1), None, "cluster", &lease, 11).unwrap();
+
+    fs::remove_file(&path).unwrap();
+
+    let read_error = store.revision().unwrap_err();
+    assert!(read_error
+        .to_string()
+        .contains("previously persisted WAL disappeared"));
+
+    let write_error = store
+        .put("b", json!(2), None, "cluster", &lease, 12)
+        .unwrap_err();
+    assert!(write_error
+        .to_string()
+        .contains("previously persisted WAL disappeared"));
+}
