@@ -1,0 +1,31 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.llvm",
+  "allowed_prs": [
+    1075
+  ],
+  "commands": [
+    {
+      "argv": [
+        "python3",
+        "-c",
+        "import subprocess\\ndef run(args):\\n p=subprocess.run(args,text=True)\\n if p.returncode: raise SystemExit(p.returncode)\\nrun(['cmake','-S','.','-B','build','-DCMAKE_BUILD_TYPE=Release','-DBUILD_TESTING=ON'])\\nrun(['cmake','--build','build','--target','oreslang-llvmc','oreslang-native-generator-i64-e2e-build','--parallel','2'])\\nrun(['ctest','--test-dir','build','-R','^native_generator_','--output-on-failure','--timeout','240'])\\nrun(['cmake','--build','build','--parallel','2'])\\nrun(['ctest','--test-dir','build','--output-on-failure','--timeout','240','--parallel','2'])\\nprint('LLVM_GENERATOR_PLAN_PASS')"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "stdout_contains": "LLVM_GENERATOR_PLAN_PASS"
+    }
+  ],
+  "required_source_blobs": {
+    "CMakeLists.txt": "4644341d363192869e98d32d08f4027933e7dd86",
+    "src/main/cpp/oreslang/backend/LlvmCodegen.cpp": "65b66c3e3a0eead07eb0647faae1de9a78df4877",
+    "src/main/cpp/oreslang/frontend/Parser.cpp": "61b1a0e199e5f32a74071a592e9e81a0d4881d92",
+    "src/main/cpp/oreslang/frontend/Parser.hpp": "5a1807bb819272ee5e6cd8dc6519a4edcac45a55",
+    "tests/native_generator_i64_e2e.rs": "919a1b534602485455af11821a7496b903728cff",
+    "tests/fixtures/generator-v1-async-reject.ores": "01abf548cada4ed0a94d61add568cfb6b3ac0184",
+    "tests/fixtures/generator-v1-suspend-reject.ores": "5574c065188ab0a9283468e7e1635afd283361ba",
+    "tests/fixtures/generator-v1-legacy-fnc-reject.ores": "b7de1a0ca2c6bb479f49c4dcec48b65cdaea845f",
+    "tests/fixtures/generator-v1-legacy-routine-reject.ores": "d4b43801ddae9a57ce500a477646c658983775e5",
+    "tests/fixtures/generator-v1-legacy-async-fnc-reject.ores": "037c8f566df3d476be43d9feb1d0fad6f470ed80"
+  }
+}
