@@ -55,7 +55,9 @@ fn markdown_targets(source: &str) -> Result<Vec<&str>, &'static str> {
     let mut rest = source;
     while let Some(start) = rest.find("](") {
         rest = &rest[start + 2..];
-        let Some(end) = rest.find(')') else { break };
+        let Some(end) = rest.find(')') else {
+            return Err("unterminated Markdown link target");
+        };
         let target = &rest[..end];
         if !target.is_empty() && !target.contains('\n') {
             if target.len() > MAX_LINK_TARGET_BYTES {
@@ -185,7 +187,7 @@ mod tests {
             markdown_targets("[a](docs/a.md) [b](#local)").unwrap(),
             ["docs/a.md", "#local"]
         );
-        assert!(markdown_targets("[incomplete](").unwrap().is_empty());
+        assert!(markdown_targets("[incomplete](").is_err());
     }
 
     #[test]
