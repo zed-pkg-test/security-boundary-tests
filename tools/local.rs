@@ -164,6 +164,7 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
     let containers = pod_spec.get("containers").and_then(Value::as_array)
         .filter(|items| !items.is_empty()).ok_or_else(|| "containers must be a nonempty array".to_string())?;
     let mut out_containers = Vec::new();
+    let mut container_names = HashSet::new();
     for container in containers {
         let container = container.as_object().ok_or_else(|| "container must be an object".to_string())?;
         if !exact_or_subset(container, &["name", "image", "resources"]) {
@@ -171,6 +172,9 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
         }
         let container_name = container.get("name").and_then(Value::as_str).filter(|x| !x.is_empty())
             .ok_or_else(|| "container name required".to_string())?;
+        if !container_names.insert(container_name.to_string()) {
+            return Err("duplicate container name".into());
+        }
         let image = container.get("image").and_then(Value::as_str).filter(|x| !x.is_empty())
             .ok_or_else(|| "container image required".to_string())?;
         let resources = container.get("resources").and_then(Value::as_object)

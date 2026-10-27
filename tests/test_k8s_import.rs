@@ -104,3 +104,14 @@ fn quantity_subset_is_intentionally_narrow() {
         assert!(memory_bytes(&json!(value)).is_err(), "{value}");
     }
 }
+
+#[test]
+fn duplicate_container_names_are_rejected() {
+    let mut document = deployment();
+    let duplicate = document["spec"]["template"]["spec"]["containers"][0].clone();
+    document["spec"]["template"]["spec"]["containers"]
+        .as_array_mut()
+        .unwrap()
+        .push(duplicate);
+    assert!(import_k8s_deployment(&document).is_err());
+}
