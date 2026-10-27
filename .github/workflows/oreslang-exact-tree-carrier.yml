@@ -38,7 +38,7 @@ jobs:
         run: python3 scripts/test-prefetch-oreslang-maven-deps.py
       - name: Source-free reviewed-plan admission regression suite
         run: python3 scripts/test-validate-oreslang-reviewed-plans.py
-      - name: Validate exact Java, LLVM, .NET and JS generator reviewed plans
+      - name: Validate exact Java, LLVM, .NET, JS and Wasm generator reviewed plans
         run: |
           set -euo pipefail
           python3 scripts/validate-oreslang-reviewed-plans.py \
@@ -46,7 +46,8 @@ jobs:
             ci/test-plans/java-pr2131.json \
             ci/test-plans/llvm-pr1075.json \
             ci/test-plans/net-pr180.json \
-            ci/test-plans/js-pr85.json
+            ci/test-plans/js-pr85.json \
+            ci/test-plans/wasm-pr145.json
 
   isolation-probe:
     if: github.event_name == 'pull_request'
