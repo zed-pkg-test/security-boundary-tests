@@ -52,14 +52,15 @@
     "src/main/java/dev/oreslang/compiler/TreeShaker.java": "50f4c55cc55c10f7d1ef3a281d4e2260aec73423",
     "src/main/java/dev/oreslang/nodes/OresEvalRootNode.java": "fa2d9521e1804b123e2295f905b75d4e1ceffccf",
     "src/main/java/dev/oreslang/parser/Parser.java": "ec311a1dfe426338a1cac2c6f06db87fa32a27e8",
-    "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java": "67a60059c4fc89fb40d8468747d5e805410abccc",
+    "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java": "898db2ea73b4ce62a55bab50b5bc5ac49124a3ca",
     "src/main/java/dev/oreslang/types/OwnershipChecker.java": "580765395eea8393c6d4ee5352e8d215cb6527c9",
     "src/main/java/dev/oreslang/types/TypeChecker.java": "4a9df87d7ecc87307972977a5f2b48b45077d407",
     "src/test/java/dev/oreslang/GeneratorCanonicalAdmissionTest.java": "c9ff9c8bce78928f03db7a8312ff20b8d11882d1",
     "src/test/java/dev/oreslang/GeneratorLanguageTest.java": "e52d422af8e1a02cc4679678e73d9be301c9dd49",
-    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "b046e41db168d556bbe1579cf07bf8b3d5df6039",
+    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "625032d4d386771695d9f268ddd897563c2e946f",
     "src/test/java/dev/oreslang/IncrementalFunctorStaticTest.java": "2438930abe4d91b942a1c9fdf0e10d2adcfea425",
     "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java": "f9f977d8a64d4e704531b06354fc6505b07d6dee",
-    "src/test/java/dev/oreslang/TreeShakerTest.java": "09d6d85a37814b2c3a1e259e48a8b86b136e92f1"
+    "src/test/java/dev/oreslang/TreeShakerTest.java": "09d6d85a37814b2c3a1e259e48a8b86b136e92f1",
+    "src/main/java/dev/oreslang/runtime/AsyncRuntime.java": "a14f4390d005aa408a797a9f10611d005221365d"
   }
 }
