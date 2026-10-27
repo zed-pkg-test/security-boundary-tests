@@ -22,6 +22,7 @@ type HmacSha256 = Hmac<Sha256>;
 const MAX_QUERY_BYTES: usize = 8192;
 const MAX_QUERY_PARAMS: usize = 32;
 const MAX_ROUTE_BYTES: usize = 4096;
+const MAX_AUTH_HEADER_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiError {
@@ -476,6 +477,9 @@ impl Authorizer {
 
     pub fn authenticate(&self, header: Option<&str>) -> Result<Principal, ApiError> {
         let header = header.ok_or(ApiError::Unauthorized("missing bearer identity"))?;
+        if header.len() > MAX_AUTH_HEADER_BYTES || header.contains('\0') {
+            return Err(ApiError::Unauthorized("invalid bearer identity"));
+        }
         let token = header
             .strip_prefix("Bearer ")
             .ok_or(ApiError::Unauthorized("missing bearer identity"))?;
