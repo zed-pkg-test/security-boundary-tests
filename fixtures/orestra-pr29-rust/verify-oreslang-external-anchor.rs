@@ -123,6 +123,14 @@ fn carrier_context<F>(api:&mut F)->Result<(String,String,String),Denied> where F
     let parents=commit["parents"].as_array().ok_or_else(||deny("carrier source commit must have exactly one parent"))?;
     if commit["sha"]!=head||parents.len()!=1{return Err(deny("carrier source commit must have exactly one parent"));}
     let base=require_sha(parents[0]["sha"].as_str(),"carrier base SHA invalid")?;
+    if control_mode{
+        let expected_auth=format!("ci/authorized-{head}");
+        if control_auth.as_deref()!=Some(expected_auth.as_str()){
+            return Err(deny("control dispatch authorization ref mismatch"));
+        }
+        let expected_parent=require_sha(control_parent.as_deref(),"control dispatch parent invalid")?;
+        if base!=expected_parent{return Err(deny("carrier/control parent mismatch"));}
+    }
     let source_ref=api(&format!("repos/{CARRIER_REPO}/git/ref/heads/{ref_name}"))?;
     if source_ref["ref"]!=format!("refs/heads/{ref_name}")||source_ref["object"]["type"]!="commit"||source_ref["object"]["sha"]!=head{
         return Err(deny("source-tree ref missing or mismatched"));
