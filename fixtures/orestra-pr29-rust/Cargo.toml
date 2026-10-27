@@ -1,0 +1,30 @@
+[package]
+name = "orestra-conformance"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde_json = "1.0"
+sha1 = "0.10"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lib]
+path = "src/lib.rs"
+
+[[test]]
+name = "control-dispatch"
+path = "tests/control_dispatch.rs"
+
+[[test]]
+name = "external-anchor"
+path = "tests/external_anchor.rs"
+
+[[test]]
+name = "private-carrier"
+path = "tests/private_carrier.rs"
