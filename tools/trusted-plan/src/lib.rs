@@ -17,6 +17,7 @@ const MAX_TIMEOUT: u64 = 1800;
 const MAX_LOG_BYTES: usize = 64 * 1024;
 const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
 const MAX_PLAN_BYTES: u64 = 256 * 1024;
+const MAX_PATH_BYTES: usize = 4096;
 const SAFE_ENV_KEYS: [&str; 6] = [
     "PATH",
     "JAVA_HOME",
@@ -53,7 +54,9 @@ fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
         .and_then(Value::as_str)
         .ok_or_else(|| deny("test plan path"))?;
     let path = Path::new(value);
-    if !value.starts_with("ci/test-plans/")
+    if value.len() > MAX_PATH_BYTES
+        || value.contains('\0')
+        || !value.starts_with("ci/test-plans/")
         || !value.ends_with(".json")
         || value.contains('\\')
         || path.is_absolute()
@@ -191,7 +194,7 @@ fn path_has_unsafe_parts(value: &str) -> bool {
 }
 
 pub fn confined_cwd(root: &Path, relative: &str) -> Result<PathBuf, Denied> {
-    if relative.is_empty() {
+    if relative.is_empty() || relative.len() > MAX_PATH_BYTES || relative.contains('\0') {
         return Err(deny("command cwd"));
     }
     if relative != "." && path_has_unsafe_parts(relative) {
@@ -638,6 +641,22 @@ mod tests {
         let linked = t.0.join("ci/linked-receipt.json");
         symlink(&receipt, &linked).unwrap();
         assert!(load_context_in(&t.0, &linked).is_err());
+    }
+
+    #[test]
+    fn plan_and_command_paths_are_bounded() {
+        let oversized_plan = format!("ci/test-plans/{}.json", "x".repeat(MAX_PATH_BYTES));
+        let value = Value::String(oversized_plan);
+        assert!(safe_plan_path(Some(&value)).is_err());
+
+        let nul_plan = Value::String("ci/test-plans/bad\0name.json".into());
+        assert!(safe_plan_path(Some(&nul_plan)).is_err());
+
+        let t = Temp::new();
+        fs::create_dir_all(t.0.join("private-oreslang-source")).unwrap();
+        let root = fs::canonicalize(t.0.join("private-oreslang-source")).unwrap();
+        assert!(confined_cwd(&root, &"x".repeat(MAX_PATH_BYTES + 1)).is_err());
+        assert!(confined_cwd(&root, "bad\0cwd").is_err());
     }
 
     #[test]
