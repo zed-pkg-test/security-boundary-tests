@@ -16,6 +16,8 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 
+const MAX_IDENTITY_BYTES: usize = 256;
+
 #[cfg(unix)]
 fn group_alive(pgid: u32) -> bool {
     let result = unsafe { libc::kill(-(pgid as libc::pid_t), 0) };
@@ -168,8 +170,12 @@ impl ProcessRuntime {
     ) -> Result<Sandbox, RuntimeError> {
         self.check_epoch(agent_epoch)?;
         if uid.is_empty()
+            || uid.len() > MAX_IDENTITY_BYTES
+            || uid.contains('\0')
             || generation == 0
             || idempotency_key.is_empty()
+            || idempotency_key.len() > MAX_IDENTITY_BYTES
+            || idempotency_key.contains('\0')
             || !(1..=300).contains(&duration_seconds)
         {
             return Err(RuntimeError::Invalid("invalid start request".into()));
@@ -387,6 +393,28 @@ mod tests {
         assert!(matches!(
             rt.start("b", 1, 7, "same", 30),
             Err(RuntimeError::Conflict(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_unbounded_or_nul_identity_inputs() {
+        let Some(mut rt) = runtime() else { return };
+        let oversized = "x".repeat(MAX_IDENTITY_BYTES + 1);
+        assert!(matches!(
+            rt.start(&oversized, 1, 7, "key", 1),
+            Err(RuntimeError::Invalid(_))
+        ));
+        assert!(matches!(
+            rt.start("uid", 1, 7, &oversized, 1),
+            Err(RuntimeError::Invalid(_))
+        ));
+        assert!(matches!(
+            rt.start("bad\0uid", 1, 7, "key", 1),
+            Err(RuntimeError::Invalid(_))
+        ));
+        assert!(matches!(
+            rt.start("uid", 1, 7, "bad\0key", 1),
+            Err(RuntimeError::Invalid(_))
         ));
     }
 
