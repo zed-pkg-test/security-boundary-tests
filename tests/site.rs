@@ -7,6 +7,9 @@ use std::{
 
 const MAX_HTML_BYTES: u64 = 1_048_576;
 const MAX_HTML_FILES: usize = 4096;
+const MAX_LINKS_PER_HTML: usize = 4096;
+const MAX_IDS_PER_HTML: usize = 4096;
+const MAX_ATTR_VALUE_BYTES: usize = 4096;
 
 fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
@@ -53,10 +56,18 @@ fn parse_links_and_ids(html: &str) -> Result<(Vec<String>, BTreeSet<String>), St
                 .or_else(|| attr.get(3))
                 .map(|m| m.as_str())
                 .unwrap_or("");
-            if name == "id" && !ids.insert(value.to_owned()) {
-                return Err(format!("duplicate HTML id: {value}"));
+            if name == "id" {
+                if value.len() > MAX_ATTR_VALUE_BYTES || ids.len() >= MAX_IDS_PER_HTML {
+                    return Err("HTML id inventory exceeds bounds".into());
+                }
+                if !ids.insert(value.to_owned()) {
+                    return Err(format!("duplicate HTML id: {value}"));
+                }
             }
             if tag == "a" && name == "href" {
+                if value.len() > MAX_ATTR_VALUE_BYTES || links.len() >= MAX_LINKS_PER_HTML {
+                    return Err("HTML link inventory exceeds bounds".into());
+                }
                 links.push(value.to_owned());
             }
         }
@@ -220,4 +231,19 @@ fn static_site_inventory_and_html_size_are_bounded() {
     assert!(collect_html(&root, &mut files).is_err());
 
     fs::remove_dir_all(&root).unwrap();
+}
+
+
+#[test]
+fn html_link_and_id_fanout_are_bounded() {
+    let many_links = "<a href=\"x\">x</a>".repeat(MAX_LINKS_PER_HTML + 1);
+    assert!(parse_links_and_ids(&many_links).is_err());
+
+    let many_ids = (0..=MAX_IDS_PER_HTML)
+        .map(|index| format!("<div id=\"i{index}\"></div>"))
+        .collect::<String>();
+    assert!(parse_links_and_ids(&many_ids).is_err());
+
+    let oversized = format!("<a href=\"{}\">x</a>", "x".repeat(MAX_ATTR_VALUE_BYTES + 1));
+    assert!(parse_links_and_ids(&oversized).is_err());
 }
