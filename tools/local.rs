@@ -5,6 +5,23 @@ use std::path::Path;
 
 const VALID_KINDS: [&str; 5] = ["Workload", "Deployment", "Node", "Lease", "Reservation"];
 const MAX_CONTAINERS: usize = 256;
+const MAX_IDENTITY_BYTES: usize = 256;
+const MAX_IMAGE_BYTES: usize = 2048;
+
+fn bounded_text<'a>(
+    value: Option<&'a Value>,
+    label: &str,
+    max_bytes: usize,
+) -> Result<&'a str, String> {
+    let text = value
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| format!("{label} must be nonempty text"))?;
+    if text.len() > max_bytes || text.contains('\0') {
+        return Err(format!("{label} exceeds supported identity bound"));
+    }
+    Ok(text)
+}
 
 pub fn validate(value: &Value) -> Result<(), String> {
     let object = value.as_object().ok_or_else(|| "manifest must be an object".to_string())?;
@@ -20,9 +37,7 @@ pub fn validate(value: &Value) -> Result<(), String> {
         .and_then(Value::as_object)
         .ok_or_else(|| "missing metadata".to_string())?;
     for key in ["name", "namespace", "uid", "resourceVersion"] {
-        if metadata.get(key).and_then(Value::as_str).is_none_or(str::is_empty) {
-            return Err(format!("metadata.{key} must be nonempty text"));
-        }
+        bounded_text(metadata.get(key), &format!("metadata.{key}"), MAX_IDENTITY_BYTES)?;
     }
     if metadata.get("generation").and_then(Value::as_i64).is_none_or(|generation| generation < 1) {
         return Err("metadata.generation must be positive integer".into());
@@ -111,10 +126,12 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
     if !exact_or_subset(metadata, &["name", "namespace", "generation", "labels"]) {
         return Err("unsupported Kubernetes metadata".into());
     }
-    let name = metadata.get("name").and_then(Value::as_str).filter(|x| !x.is_empty())
-        .ok_or_else(|| "invalid Kubernetes metadata".to_string())?;
+    let name = bounded_text(metadata.get("name"), "Kubernetes metadata.name", MAX_IDENTITY_BYTES)?;
     let namespace = metadata.get("namespace").and_then(Value::as_str).unwrap_or("default");
-    if namespace.is_empty() {
+    if namespace.is_empty()
+        || namespace.len() > MAX_IDENTITY_BYTES
+        || namespace.contains('\0')
+    {
         return Err("invalid Kubernetes metadata".into());
     }
     let generation = metadata.get("generation").map(Value::as_i64).unwrap_or(Some(1))
@@ -174,13 +191,12 @@ pub fn import_k8s_deployment(value: &Value) -> Result<Value, String> {
         if !exact_or_subset(container, &["name", "image", "resources"]) {
             return Err("unsupported container field".into());
         }
-        let container_name = container.get("name").and_then(Value::as_str).filter(|x| !x.is_empty())
-            .ok_or_else(|| "container name required".to_string())?;
+        let container_name =
+            bounded_text(container.get("name"), "container name", MAX_IDENTITY_BYTES)?;
         if !container_names.insert(container_name.to_string()) {
             return Err("duplicate container name".into());
         }
-        let image = container.get("image").and_then(Value::as_str).filter(|x| !x.is_empty())
-            .ok_or_else(|| "container image required".to_string())?;
+        let image = bounded_text(container.get("image"), "container image", MAX_IMAGE_BYTES)?;
         let resources = container.get("resources").and_then(Value::as_object)
             .ok_or_else(|| "resource requests are required".to_string())?;
         if !exact_or_subset(resources, &["requests", "limits"]) {
