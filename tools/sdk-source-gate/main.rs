@@ -9,6 +9,12 @@ fn validate_source(source: &str) -> Result<(), &'static str> {
     if source.contains('\0') {
         return Err("NUL byte forbidden in Oreslang source");
     }
+    if source
+        .bytes()
+        .any(|byte| byte < 0x20 && !matches!(byte, b'\n' | b'\r'))
+    {
+        return Err("control byte forbidden in Oreslang source");
+    }
     if !source.contains("define module") || !source.contains("end") {
         return Err("missing module boundaries");
     }
@@ -111,6 +117,12 @@ mod tests {
     #[test]
     fn rejects_embedded_nul_source() {
         assert!(validate_source(&format!("{VALID}\0")).is_err());
+    }
+
+    #[test]
+    fn rejects_non_newline_control_bytes() {
+        assert!(validate_source(&format!("{VALID}\t")).is_err());
+        assert!(validate_source(&format!("{VALID}\u{0007}")).is_err());
     }
 
     #[test]
