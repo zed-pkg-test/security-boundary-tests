@@ -115,3 +115,20 @@ fn duplicate_container_names_are_rejected() {
         .push(duplicate);
     assert!(import_k8s_deployment(&document).is_err());
 }
+
+
+#[test]
+fn excessive_container_count_is_rejected() {
+    let mut document = deployment();
+    let template = document["spec"]["template"]["spec"]["containers"][0].clone();
+    let containers = document["spec"]["template"]["spec"]["containers"]
+        .as_array_mut()
+        .unwrap();
+    containers.clear();
+    for index in 0..257 {
+        let mut container = template.clone();
+        container["name"] = json!(format!("c{index}"));
+        containers.push(container);
+    }
+    assert!(import_k8s_deployment(&document).is_err());
+}
