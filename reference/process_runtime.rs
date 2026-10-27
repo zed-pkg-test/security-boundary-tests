@@ -18,6 +18,7 @@ use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 
 const MAX_IDENTITY_BYTES: usize = 256;
 const HANDLE_HEX_BYTES: usize = 32;
+const MAX_TRACKED_REQUESTS: usize = 4096;
 
 fn valid_handle(handle: &str) -> bool {
     handle.len() == HANDLE_HEX_BYTES
@@ -205,6 +206,11 @@ impl ProcessRuntime {
                 .get(handle)
                 .map(|s| s.info.clone())
                 .ok_or(RuntimeError::UnknownSandbox);
+        }
+        if self.idempotency.len() >= MAX_TRACKED_REQUESTS
+            || self.sandboxes.len() >= MAX_TRACKED_REQUESTS
+        {
+            return Err(RuntimeError::Invalid("runtime request ledger full".into()));
         }
 
         let relevant: Vec<(u64, String)> = self
@@ -430,6 +436,30 @@ mod tests {
             rt.start("uid", 1, 7, "bad\0key", 1),
             Err(RuntimeError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn runtime_request_ledger_is_bounded_before_spawn() {
+        let Some(mut rt) = runtime() else { return };
+        let handle = "0".repeat(HANDLE_HEX_BYTES);
+        for index in 0..MAX_TRACKED_REQUESTS {
+            rt.idempotency.insert(
+                format!("key-{index}"),
+                (
+                    Identity {
+                        uid: format!("uid-{index}"),
+                        generation: 1,
+                        duration_seconds: 1,
+                    },
+                    handle.clone(),
+                ),
+            );
+        }
+        assert!(matches!(
+            rt.start("new-work", 1, 7, "new-key", 1),
+            Err(RuntimeError::Invalid(_))
+        ));
+        assert!(rt.sandboxes.is_empty());
     }
 
     #[test]
