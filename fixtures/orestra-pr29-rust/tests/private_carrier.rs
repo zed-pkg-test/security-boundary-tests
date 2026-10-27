@@ -51,7 +51,7 @@ fn v4_passes_and_v3_downgrade_is_rejected(){
  assert!(r.verify().unwrap_err().contains("must be v4"));
 }
 #[test]
-fn unexpected_destination_and_workflow_mutation_fail(){let r=Repo::make(Some(("outside.txt","bad\n")),false,"ores-private-ci-receipt-v3");assert!(r.verify().unwrap_err().contains("unexpected destination change"));let r=Repo::make(None,true,"ores-private-ci-receipt-v3");let e=r.verify().unwrap_err();assert!(e.contains("unexpected destination change")||e.contains("workflow changed"));}
+fn unexpected_destination_and_workflow_mutation_fail(){let r=Repo::make(Some(("outside.txt","bad\n")),false,"ores-private-ci-receipt-v4");assert!(r.verify().unwrap_err().contains("unexpected destination change"));let r=Repo::make(None,true,"ores-private-ci-receipt-v4");let e=r.verify().unwrap_err();assert!(e.contains("unexpected destination change")||e.contains("workflow changed"));}
 #[test]
 fn symlink_git_entry_is_rejected(){let dir=tempdir().unwrap();let root=dir.path();cmd(root,&["init","-q"]);fs::write(root.join("target"),"x").unwrap();std::os::unix::fs::symlink("target",root.join("link")).unwrap();cmd(root,&["add","-A"]);let tree=cmd(root,&["write-tree"]);let e=with_cwd(root,||tree_manifest(&tree).unwrap_err().to_string());assert!(e.contains("unsupported Git entry"));}
 
