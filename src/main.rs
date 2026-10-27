@@ -99,8 +99,14 @@ mod tests {
     #[test]
     fn rejects_missing_demo_sections_or_phase() {
         assert!(check_demo(&json!({"nodes":[],"workloads":[]})).is_err());
-        assert!(check_demo(&json!({"nodes":[{"status":{}}],"workloads":[{"status":{"phase":"Ready"}}]})).is_err());
-        assert!(check_demo(&json!({"nodes":[{"status":{"phase":"Ready"}}],"workloads":[{"status":{"phase":"Ready"}}]})).is_ok());
+        assert!(check_demo(&json!({
+            "nodes":[{"metadata":{"name":"n1","namespace":"system"},"status":{}}],
+            "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Ready"}}]
+        })).is_err());
+        assert!(check_demo(&json!({
+            "nodes":[{"metadata":{"name":"n1","namespace":"system"},"status":{"phase":"Ready"}}],
+            "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Ready"}}]
+        })).is_ok());
     }
 
     #[test]
