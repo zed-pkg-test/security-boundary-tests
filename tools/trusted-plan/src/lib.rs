@@ -19,6 +19,7 @@ const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
 const MAX_PLAN_BYTES: u64 = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ALLOWED_PRS: usize = 128;
+const MAX_REPO_IDENTITY_BYTES: usize = 256;
 const SAFE_ENV_KEYS: [&str; 6] = [
     "PATH",
     "JAVA_HOME",
@@ -61,6 +62,12 @@ fn validate_allowed_prs(allowed: &[Value], source_pr: i64) -> Result<(), Denied>
         return Err(deny("source PR not authorized by test plan"));
     }
     Ok(())
+}
+
+fn valid_source_repo(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_REPO_IDENTITY_BYTES
+        && !value.contains('\0')
 }
 
 fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
@@ -175,6 +182,9 @@ pub fn load_context_in(workspace: &Path, receipt_path: &Path) -> Result<Context,
         .get("repo")
         .and_then(Value::as_str)
         .ok_or_else(|| deny("test plan source repository mismatch"))?;
+    if !valid_source_repo(source_repo) {
+        return Err(deny("test plan source repository mismatch"));
+    }
     if plan_obj.get("source_repo").and_then(Value::as_str) != Some(source_repo) {
         return Err(deny("test plan source repository mismatch"));
     }
@@ -592,6 +602,14 @@ mod tests {
             "timeout_seconds":30,
             "stdout_contains":"TRUSTED_PLAN_SYNTHETIC_PASS"
         })
+    }
+
+    #[test]
+    fn source_repository_identity_is_bounded() {
+        assert!(valid_source_repo("synthetic/private"));
+        assert!(!valid_source_repo(""));
+        assert!(!valid_source_repo("bad\0repo"));
+        assert!(!valid_source_repo(&"r".repeat(MAX_REPO_IDENTITY_BYTES + 1)));
     }
 
     #[test]
