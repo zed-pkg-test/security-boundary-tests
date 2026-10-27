@@ -19,7 +19,7 @@ MAX_TIMEOUT = 1800
 MAX_LOG_CHARS = 64 * 1024
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 SAFE_ENV_KEYS = ("PATH", "JAVA_HOME", "GRAALVM_HOME", "LANG", "LC_ALL", "HOME")
-SAFE_EXECUTABLE = re.compile(r"^(?:python3|mvn|cmake|ctest|cargo|g\+\+|clang\+\+|/tmp/ores-[A-Za-z0-9_.-]+)$")
+SAFE_EXECUTABLE = re.compile(r"^(?:python3|mvn|cmake|ctest|cargo|node|g\+\+|clang\+\+|/tmp/ores-[A-Za-z0-9_.-]+)$")
 
 
 class Denied(RuntimeError):
@@ -146,6 +146,22 @@ def validate_maven_argv(argv):
             raise Denied("Maven command overrides trusted build controls")
 
 
+NODE_TEST_PATH = re.compile(r"^tests/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.test\.mjs$")
+
+
+def validate_node_argv(argv):
+    if len(argv) < 2 or argv[1] != "--test":
+        raise Denied("Node command must use the built-in test runner")
+    for arg in argv[2:]:
+        if arg.startswith("-"):
+            raise Denied("Node test options are not approved")
+        path = PurePosixPath(arg)
+        if (not NODE_TEST_PATH.fullmatch(arg)
+                or path.is_absolute()
+                or any(part in ("", ".", "..") for part in path.parts)):
+            raise Denied("Node test path is not approved")
+
+
 CARGO_ALLOWED_SUBCOMMANDS = {"fmt", "test", "clippy", "rustdoc", "build"}
 CARGO_OFFLINE_SUBCOMMANDS = {"test", "clippy", "rustdoc", "build"}
 
@@ -179,6 +195,8 @@ def validate_command(command, root):
         validate_maven_argv(argv)
     if argv[0] == "cargo":
         validate_cargo_argv(argv)
+    if argv[0] == "node":
+        validate_node_argv(argv)
     timeout = command.get("timeout_seconds")
     if (not isinstance(timeout, int) or isinstance(timeout, bool)
             or timeout < 1 or timeout > MAX_TIMEOUT):
