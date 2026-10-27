@@ -548,3 +548,30 @@ fn reservation_identity_inputs_are_bounded() {
         assert!(matches!(result, Err(StoreError::Invalid(_))));
     }
 }
+
+
+#[test]
+fn watch_inputs_are_bounded_before_scan() {
+    let (store, lease) = setup();
+    put(&store, &lease, "Workload/default/a", json!({"v":1}), None, 10).unwrap();
+
+    let oversized_prefix = "x".repeat(1025);
+    assert!(matches!(
+        store.watch_after(0, &oversized_prefix),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.watch_resume("1:0", "bad\0prefix"),
+        Err(StoreError::Invalid(_))
+    ));
+
+    let oversized_cursor = "1".repeat(65);
+    assert!(matches!(
+        store.watch_resume(&oversized_cursor, ""),
+        Err(StoreError::ResetRequired(_))
+    ));
+    assert!(matches!(
+        store.watch_resume("1:\0", ""),
+        Err(StoreError::ResetRequired(_))
+    ));
+}
