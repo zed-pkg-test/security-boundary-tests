@@ -1,0 +1,19 @@
+name: State semantics
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject Python sources
+        run: |
+          if find . -type f -name '*.py' -print -quit | grep -q .; then
+            echo "Python sources are prohibited; use Rust for conformance/reference tooling." >&2
+            find . -type f -name '*.py' -print >&2
+            exit 1
+          fi
+      - run: cargo test --all-targets
+      - run: cargo run --bin bounded-fencing
+      - run: cargo run --bin check-fencing

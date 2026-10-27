@@ -1,0 +1,9 @@
+// Backend-neutral guards; must be evaluated transactionally with mutations.
+define module epoch as
+  pub fnc valid(int active_epoch, int claimed_epoch, bool lease_unexpired): bool {
+    return active_epoch > 0 & claimed_epoch == active_epoch & lease_unexpired;
+  }
+  pub fnc advances(int old_epoch, int new_epoch): bool {
+    return old_epoch >= 0 & new_epoch > old_epoch;
+  }
+end

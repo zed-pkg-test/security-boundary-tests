@@ -1,0 +1,17 @@
+// Raft helper predicates; NOT a Raft implementation or consensus service.
+define module raftmath as
+  pub fnc majority(int votes, int members): bool {
+    if members < 1 | votes < 0 | votes > members; do return false; fi
+    // Equivalent to votes * 2 > members without multiplication overflow.\n    return votes > members - votes;
+  }
+  pub fnc can_commit(int acknowledgements, int members,
+                     int active_term, int claimed_term): bool {
+    return majority(acknowledgements, members) &&
+           active_term > 0 && claimed_term == active_term;
+  }
+
+  pub fnc can_vote(int term, int candidate_term, bool voted_for_other,
+                   bool log_up_to_date): bool {
+    return candidate_term >= term & !voted_for_other & log_up_to_date;
+  }
+end

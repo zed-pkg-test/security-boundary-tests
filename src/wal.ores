@@ -1,0 +1,25 @@
+// Pure recovery invariants shared by future native durable state.
+// Persistence, fsync, checksums and consensus are implemented by the backend.
+define module wal as
+  pub fnc valid_counters(int revision, int compacted_through): bool {
+    return revision >= 0 &&
+           compacted_through >= 0 &&
+           compacted_through <= revision;
+  }
+
+  pub fnc monotonic_replay(int previous_revision, int next_revision,
+                           int previous_epoch, int next_epoch): bool {
+    if previous_revision < 0 || next_revision < previous_revision; do
+      return false;
+    fi
+    if previous_epoch < 0 || next_epoch < previous_epoch; do
+      return false;
+    fi
+    return true;
+  }
+
+  pub fnc acknowledged_only_after_durable(bool frame_written,
+                                          bool frame_synced): bool {
+    return frame_written && frame_synced;
+  }
+end

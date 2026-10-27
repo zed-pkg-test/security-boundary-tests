@@ -1,0 +1,13 @@
+define module revision as
+  // Revision zero is reserved to mean no previously observed changes.
+  pub fnc next(int last): int {
+    if last < 0 | last == 9223372036854775807; do return -1; fi
+    return last + 1;
+  }
+  pub fnc is_compacted(int cursor, int compacted_through): bool {
+    return cursor < compacted_through;
+  }
+  pub fnc must_relist(int cursor, int oldest_available): bool {
+    return cursor < oldest_available - 1;
+  }
+end
