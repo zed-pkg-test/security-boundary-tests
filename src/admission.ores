@@ -1,0 +1,34 @@
+// Pure API ingress authorization/CAS guards. Production identity comes from
+// authenticated transport credentials, not client-supplied payload fields.
+define module api_admission as
+  pub fnc authorized(bool identity_authenticated,
+                     bool namespace_allowed,
+                     bool verb_allowed): bool {
+    return identity_authenticated && namespace_allowed && verb_allowed;
+  }
+
+  pub fnc write_preconditions(int active_leader_epoch,
+                              int claimed_leader_epoch,
+                              int stored_version,
+                              int expected_version,
+                              bool create_only): bool {
+    if active_leader_epoch <= 0 ||
+       claimed_leader_epoch != active_leader_epoch; do return false; fi
+    if create_only; do
+      return stored_version == 0 && expected_version == 0;
+    fi
+    return stored_version > 0 && expected_version == stored_version;
+  }
+
+  pub fnc list_limit_valid(int requested_limit, int maximum_limit): bool {
+    return requested_limit > 0 &&
+           maximum_limit > 0 &&
+           requested_limit <= maximum_limit;
+  }
+
+  pub fnc watch_resume_valid(bool has_revision,
+                             bool has_event_cursor): bool {
+    // A resume request chooses exactly one position representation.
+    return has_revision != has_event_cursor;
+  }
+end

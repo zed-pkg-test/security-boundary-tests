@@ -1,0 +1,25 @@
+{
+  "apiVersion": "orestra.io/v1alpha1",
+  "kind": "Service",
+  "metadata": {
+    "name": "web",
+    "namespace": "default",
+    "uid": "service-web-uid",
+    "generation": 1,
+    "resourceVersion": "1"
+  },
+  "spec": {
+    "selector": {
+      "app": "web"
+    },
+    "ports": [
+      {
+        "name": "http",
+        "port": 80,
+        "targetPort": 8080,
+        "protocol": "TCP"
+      }
+    ],
+    "type": "ClusterIP"
+  }
+}

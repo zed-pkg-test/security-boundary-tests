@@ -1,0 +1,55 @@
+openapi: 3.1.0
+info:
+  title: Orestra API
+  version: 0.1.0-alpha
+servers:
+  - url: http://127.0.0.1:8181
+paths:
+  /healthz:
+    get:
+      responses:
+        '200':
+          description: API process is healthy
+  /v1alpha1/{kind}:
+    get:
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string}
+        - name: namespace
+          in: query
+          schema: {type: string}
+        - name: resourceVersion
+          in: query
+          description: Consistent list snapshot revision; watches start strictly after it
+          schema: {type: string}
+      responses:
+        '200':
+          description: List response
+    post:
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '201': {description: Created}
+        '409': {description: Conflict or already exists}
+  /v1alpha1/{kind}/{namespace}/{name}:
+    get:
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: namespace, in: path, required: true, schema: {type: string}}
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Object}
+        '404': {description: Not found}
+    put:
+      parameters:
+        - {name: kind, in: path, required: true, schema: {type: string}}
+        - {name: namespace, in: path, required: true, schema: {type: string}}
+        - {name: name, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Updated}
+        '409': {description: Version mismatch}

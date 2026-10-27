@@ -1,0 +1,31 @@
+{
+  "apiVersion": "orestra.io/v1alpha1",
+  "kind": "Workload",
+  "metadata": {
+    "name": "hello-0",
+    "namespace": "default",
+    "uid": "hello-0-uid",
+    "generation": 1,
+    "resourceVersion": "1",
+    "labels": {
+      "app": "hello"
+    }
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "web",
+        "image": "nginx:stable",
+        "resources": {
+          "cpuMillis": 100,
+          "memoryBytes": 67108864
+        }
+      }
+    ],
+    "restartPolicy": "Always"
+  },
+  "status": {
+    "phase": "Pending",
+    "observedGeneration": 0
+  }
+}

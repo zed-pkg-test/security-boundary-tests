@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orestra.dev/schemas/v1alpha1/deployment.schema.json",
+  "title": "Orestra deployment v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "orestra.io/v1alpha1"
+    },
+    "kind": {
+      "const": "Deployment"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "name",
+        "namespace",
+        "uid",
+        "generation",
+        "resourceVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854776000
+        },
+        "resourceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "deletionTimestamp": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": [
+        "replicas",
+        "template"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "template": {
+          "type": "object",
+          "required": [
+            "containers"
+          ],
+          "properties": {
+            "containers": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "image"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "image": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "command": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "resources": {
+                    "type": "object",
+                    "required": [
+                      "cpuMillis",
+                      "memoryBytes"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "cpuMillis": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9223372036854776000
+                      },
+                      "memoryBytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9223372036854776000
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "selector": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "nodeLabels": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "requiredZone": {
+                  "type": "string"
+                },
+                "tolerations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "strategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxSurge": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854776000
+            },
+            "maxUnavailable": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854776000
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observedGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "readyReplicas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        },
+        "updatedReplicas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854776000
+        }
+      }
+    }
+  }
+}

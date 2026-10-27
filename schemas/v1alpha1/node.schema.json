@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orestra.dev/schemas/v1alpha1/node.schema.json",
+  "title": "Orestra node v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "orestra.io/v1alpha1"
+    },
+    "kind": {
+      "const": "Node"
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "name",
+        "namespace",
+        "uid",
+        "generation",
+        "resourceVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854776000
+        },
+        "resourceVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "deletionTimestamp": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": [
+        "capacity",
+        "labels"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "type": "object",
+          "required": [
+            "cpuMillis",
+            "memoryBytes"
+          ],
+          "properties": {
+            "cpuMillis": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854776000
+            },
+            "memoryBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854776000
+            }
+          },
+          "additionalProperties": false
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "taints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unschedulable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "enum": [
+            "Ready",
+            "NotReady",
+            "Unknown"
+          ]
+        },
+        "allocatable": {
+          "type": "object",
+          "properties": {
+            "cpuMillis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854776000
+            },
+            "memoryBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854776000
+            }
+          }
+        },
+        "heartbeatEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

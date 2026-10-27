@@ -1,21 +1,9 @@
-.env
-.env.*
-!.env.example
+# Build and local state
+*.log
+*.tmp
+.DS_Store
 __pycache__/
-*.py[cod]
-.coverage
-htmlcov/
-.venv/
-
-# >>> ores fleet hygiene — managed block, edits below are overwritten >>>
-tmp/temp/
-tmp/worktrees/
-# <<< ores fleet hygiene <<<
-
-# Repository-local temporary data and authorized Git worktrees
-tmp/
-temp/
-temp/worktrees
-
-# machine-local symlink to ORESoftware/my-ai AGENTS.md; never committed
-.ores/
+.pytest_cache/
+dist/
+build/
+.env

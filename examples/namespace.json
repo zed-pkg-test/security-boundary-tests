@@ -1,0 +1,18 @@
+{
+  "apiVersion": "orestra.io/v1alpha1",
+  "kind": "Namespace",
+  "metadata": {
+    "name": "default",
+    "namespace": "system",
+    "uid": "namespace-default-uid",
+    "generation": 1,
+    "resourceVersion": "1"
+  },
+  "spec": {
+    "quota": {
+      "cpuMillis": 4000,
+      "memoryBytes": 8589934592,
+      "maxWorkloads": 100
+    }
+  }
+}

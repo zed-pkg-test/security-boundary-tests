@@ -1,0 +1,47 @@
+syntax = "proto3";
+package orestra.v1alpha1;
+option java_package = "io.orestra.api.v1alpha1";
+
+// Control messages are transport contracts, not authoritative state.
+message ObjectRef { string namespace = 1; string kind = 2; string name = 3; string uid = 4; }
+message ResourceVersion { string value = 1; }
+message GetRequest { ObjectRef ref = 1; }
+message ListRequest {
+  string kind = 1;
+  string namespace = 2;
+  uint32 limit = 3; // server clamps/rejects above configured maximum
+  string continue_cursor = 4; // opaque, scoped and integrity protected
+}
+message ListResponse {
+  repeated ObjectEnvelope objects = 1;
+  ResourceVersion snapshot_revision = 2;
+  string continue_cursor = 3;
+}
+message ObjectEnvelope { bytes canonical_json = 1; ResourceVersion resource_version = 2; }
+message PutRequest {
+  ObjectEnvelope object = 1;
+  ResourceVersion if_version = 2; // empty means create-only
+  uint64 leader_epoch = 3;
+}
+message DeleteRequest { ObjectRef ref = 1; ResourceVersion if_version = 2; uint64 leader_epoch = 3; }
+message WatchRequest {
+  string kind = 1;
+  string namespace = 2;
+  ResourceVersion after = 3; // List snapshot revision; mutually exclusive with after_event_cursor
+  string after_event_cursor = 4; // Resume strictly after this individual watch event
+}
+message WatchEvent {
+  enum Type { TYPE_UNSPECIFIED = 0; ADDED = 1; MODIFIED = 2; DELETED = 3; BOOKMARK = 4; RESET_REQUIRED = 5; }
+  Type type = 1;
+  ObjectEnvelope object = 2;
+  ResourceVersion revision = 3; // Revision shared by all changes in one txn
+  string resume_cursor = 4; // Opaque individual event cursor; persist after handling
+}
+message DeleteResponse { bool deleted = 1; }
+service ResourceStore {
+  rpc Get(GetRequest) returns (ObjectEnvelope);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Put(PutRequest) returns (ObjectEnvelope);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+}

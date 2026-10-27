@@ -1,0 +1,30 @@
+{
+  "apiVersion": "orestra.io/v1alpha1",
+  "kind": "Deployment",
+  "metadata": {
+    "name": "hello",
+    "namespace": "default",
+    "uid": "hello-deployment-uid",
+    "generation": 1,
+    "resourceVersion": "1"
+  },
+  "spec": {
+    "replicas": 3,
+    "template": {
+      "containers": [
+        {
+          "name": "web",
+          "image": "nginx:stable",
+          "resources": {
+            "cpuMillis": 100,
+            "memoryBytes": 67108864
+          }
+        }
+      ]
+    },
+    "strategy": {
+      "maxSurge": 1,
+      "maxUnavailable": 1
+    }
+  }
+}
