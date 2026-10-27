@@ -7,6 +7,7 @@ use std::sync::Mutex;
 const MAX_KEY_BYTES: usize = 1024;
 const MAX_OBJECT_BYTES: usize = 1_048_576;
 const MAX_LEASE_IDENTITY_BYTES: usize = 256;
+const MAX_UID_BYTES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lease {
@@ -315,10 +316,23 @@ impl MemoryStore {
         now: i64,
     ) -> Result<u64, StoreError> {
         if workload_key.is_empty()
+            || workload_key.len() > MAX_KEY_BYTES
+            || workload_key.contains('\0')
             || workload_uid.is_empty()
+            || workload_uid.len() > MAX_UID_BYTES
+            || workload_uid.contains('\0')
             || node_key.is_empty()
+            || node_key.len() > MAX_KEY_BYTES
+            || node_key.contains('\0')
             || node_uid.is_empty()
+            || node_uid.len() > MAX_UID_BYTES
+            || node_uid.contains('\0')
             || reservation_key.is_empty()
+            || reservation_key.len() > MAX_KEY_BYTES
+            || reservation_key.contains('\0')
+            || domain.is_empty()
+            || domain.len() > MAX_LEASE_IDENTITY_BYTES
+            || domain.contains('\0')
             || cpu <= 0
             || memory <= 0
             || workload_version == 0
