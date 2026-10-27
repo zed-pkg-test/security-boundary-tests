@@ -258,6 +258,18 @@ class TrustedPlanRunnerTest(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaises(runner.Denied):
                 runner.validate_cargo_argv(argv)
 
+    def test_dotnet_command_is_exact_generator_verifier_only(self):
+        runner.validate_dotnet_argv(list(runner.DOTNET_GENERATOR_COMMAND))
+        for argv in (
+            ["dotnet", "test"],
+            ["dotnet", "run"],
+            ["dotnet", "run", "--project", "../escape.csproj"],
+            [*runner.DOTNET_GENERATOR_COMMAND, "--", "extra"],
+            [*runner.DOTNET_GENERATOR_COMMAND[:-1], "-p:NuGetAudit=true"],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(runner.Denied):
+                runner.validate_dotnet_argv(argv)
+
     def test_node_commands_are_test_only_and_confined(self):
         runner.validate_node_argv(["node", "--test"])
         runner.validate_node_argv(["node", "--test", "tests/generator-v1.test.mjs"])
