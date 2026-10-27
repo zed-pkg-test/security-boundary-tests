@@ -207,6 +207,17 @@ class ReviewedPlanValidatorTest(unittest.TestCase):
                 "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
                 "src/test/java/dev/oreslang/TreeShakerTest.java",
             },
+            "net-pr180.json": {
+                "Directory.Build.props",
+                "global.json",
+                "compiler/Ores.Net.Compiler.Core/Ores.Net.Compiler.Core.csproj",
+                "compiler/Ores.Net.Compiler.Core/GeneratorSourceV1.cs",
+                "runtime/Ores.Net.Runtime/Ores.Net.Runtime.csproj",
+                "runtime/Ores.Net.Runtime/GeneratorFrameV1.cs",
+                "runtime/Ores.Net.Runtime/LiteralGeneratorActivationV1.cs",
+                "verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj",
+                "verification/Ores.Net.Generator.Tests/Program.cs",
+            },
             "js-pr85.json": {
                 "package.json",
                 "src/program-v2.mjs",
