@@ -67,9 +67,14 @@ fn check_demo(data: &Value) -> Result<(), &'static str> {
 }
 
 fn check_assets(html: &str, js: &str) -> Result<(), &'static str> {
-    for expected in [r#"lang="en""#, r#"role="alert""#, r#"id="rows""#, r#"id="query""#] {
+    for expected in [r#"lang="en""#, r#"role="alert""#] {
         if !html.contains(expected) {
             return Err("required HTML accessibility marker missing");
+        }
+    }
+    for id in [r#"id="rows""#, r#"id="query""#] {
+        if html.matches(id).count() != 1 {
+            return Err("required UI id must appear exactly once");
         }
     }
     if !js.contains("replaceChildren") {
@@ -216,6 +221,14 @@ mod tests {
         assert!(check_assets(html, "replaceChildren").is_ok());
         assert!(check_assets(html, "replaceChildren; innerHTML").is_err());
         assert!(check_assets("", "replaceChildren").is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_required_ui_ids() {
+        let html = r#"<html lang="en"><div role="alert" id="rows"></div><div id="rows"></div><input id="query"></html>"#;
+        assert!(check_assets(html, "replaceChildren").is_err());
+        let html = r#"<html lang="en"><div role="alert" id="rows"></div><input id="query"><div id="query"></div></html>"#;
+        assert!(check_assets(html, "replaceChildren").is_err());
     }
 
     #[test]
