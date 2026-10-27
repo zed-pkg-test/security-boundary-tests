@@ -1,6 +1,6 @@
 //! Static/demo UI fixture admission, not a browser, accessibility, or runtime security proof.
 use serde_json::Value;
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
 const MAX_FIXTURE_BYTES: u64 = 1_048_576;
 
@@ -10,7 +10,24 @@ fn check_demo(data: &Value) -> Result<(), &'static str> {
         if items.is_empty() {
             return Err("demo section must not be empty");
         }
+        let mut identities = BTreeSet::new();
         for item in items {
+            let metadata = item["metadata"]
+                .as_object()
+                .ok_or("demo item is missing metadata")?;
+            let name = metadata
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or("demo item is missing metadata.name")?;
+            let namespace = metadata
+                .get("namespace")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or("demo item is missing metadata.namespace")?;
+            if !identities.insert((namespace, name)) {
+                return Err("duplicate demo resource identity");
+            }
             if !item["status"].as_object().is_some_and(|status| status.contains_key("phase")) {
                 return Err("demo item is missing status.phase");
             }
@@ -84,6 +101,30 @@ mod tests {
         assert!(check_demo(&json!({"nodes":[],"workloads":[]})).is_err());
         assert!(check_demo(&json!({"nodes":[{"status":{}}],"workloads":[{"status":{"phase":"Ready"}}]})).is_err());
         assert!(check_demo(&json!({"nodes":[{"status":{"phase":"Ready"}}],"workloads":[{"status":{"phase":"Ready"}}]})).is_ok());
+    }
+
+    #[test]
+    fn rejects_missing_or_duplicate_demo_identities() {
+        let valid = json!({
+            "nodes":[{"metadata":{"name":"n1","namespace":"system"},"status":{"phase":"Ready"}}],
+            "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
+        });
+        assert!(check_demo(&valid).is_ok());
+
+        let missing = json!({
+            "nodes":[{"metadata":{"namespace":"system"},"status":{"phase":"Ready"}}],
+            "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
+        });
+        assert!(check_demo(&missing).is_err());
+
+        let duplicate = json!({
+            "nodes":[
+                {"metadata":{"name":"n1","namespace":"system"},"status":{"phase":"Ready"}},
+                {"metadata":{"name":"n1","namespace":"system"},"status":{"phase":"Ready"}}
+            ],
+            "workloads":[{"metadata":{"name":"w1","namespace":"default"},"status":{"phase":"Running"}}]
+        });
+        assert!(check_demo(&duplicate).is_err());
     }
 
     #[test]
