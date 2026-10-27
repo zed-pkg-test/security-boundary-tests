@@ -15,6 +15,8 @@ const MAX_ARGS: usize = 64;
 const MAX_ARG_LENGTH: usize = 4096;
 const MAX_TIMEOUT: u64 = 1800;
 const MAX_LOG_BYTES: usize = 64 * 1024;
+const MAX_RECEIPT_BYTES: u64 = 64 * 1024;
+const MAX_PLAN_BYTES: u64 = 256 * 1024;
 const SAFE_ENV_KEYS: [&str; 6] = [
     "PATH",
     "JAVA_HOME",
@@ -63,6 +65,14 @@ fn safe_plan_path(v: Option<&Value>) -> Result<&str, Denied> {
     Ok(value)
 }
 
+fn read_regular_bounded(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, Denied> {
+    let meta = fs::symlink_metadata(path).map_err(|_| deny(format!("{label} missing or unsafe")))?;
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > max_bytes {
+        return Err(deny(format!("{label} missing or unsafe")));
+    }
+    fs::read(path).map_err(|_| deny(format!("{label} unreadable")))
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut out = String::with_capacity(64);
@@ -81,7 +91,7 @@ pub struct Context {
 }
 
 pub fn load_context_in(workspace: &Path, receipt_path: &Path) -> Result<Context, Denied> {
-    let receipt_bytes = fs::read(receipt_path).map_err(|_| deny("invalid receipt"))?;
+    let receipt_bytes = read_regular_bounded(receipt_path, MAX_RECEIPT_BYTES, "invalid receipt")?;
     let receipt: Value =
         serde_json::from_slice(&receipt_bytes).map_err(|_| deny("invalid receipt"))?;
     let receipt = object(&receipt, "receipt schema")?;
@@ -126,11 +136,7 @@ pub fn load_context_in(workspace: &Path, receipt_path: &Path) -> Result<Context,
         .ok_or_else(|| deny("receipt source/test plan"))?;
     let plan_rel = safe_plan_path(test_plan.get("path"))?;
     let plan_file = workspace.join(plan_rel);
-    let meta = fs::symlink_metadata(&plan_file).map_err(|_| deny("test plan missing or unsafe"))?;
-    if meta.file_type().is_symlink() || !meta.is_file() {
-        return Err(deny("test plan missing or unsafe"));
-    }
-    let plan_bytes = fs::read(&plan_file).map_err(|_| deny("test plan unreadable"))?;
+    let plan_bytes = read_regular_bounded(&plan_file, MAX_PLAN_BYTES, "test plan")?;
     let expected_digest = test_plan.get("sha256").and_then(Value::as_str);
     let actual_digest = sha256_hex(&plan_bytes);
     if expected_digest != Some(actual_digest.as_str()) {
@@ -585,6 +591,53 @@ mod tests {
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].argv[0], "cmake");
         }
+    }
+
+    #[test]
+    fn receipt_and_test_plan_inputs_are_bounded() {
+        let t = Temp::new();
+        let receipt = write_fixture(
+            &t.0,
+            happy_command(),
+            "synthetic/private",
+            7,
+            "ores-private-ci-receipt-v3",
+        );
+
+        fs::write(&receipt, vec![b' '; (MAX_RECEIPT_BYTES + 1) as usize]).unwrap();
+        assert!(load_context_in(&t.0, &receipt).is_err());
+
+        let receipt = write_fixture(
+            &t.0,
+            happy_command(),
+            "synthetic/private",
+            7,
+            "ores-private-ci-receipt-v3",
+        );
+        fs::write(
+            t.0.join("ci/test-plans/synthetic.json"),
+            vec![b' '; (MAX_PLAN_BYTES + 1) as usize],
+        )
+        .unwrap();
+        assert!(load_context_in(&t.0, &receipt).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_receipt_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let t = Temp::new();
+        let receipt = write_fixture(
+            &t.0,
+            happy_command(),
+            "synthetic/private",
+            7,
+            "ores-private-ci-receipt-v3",
+        );
+        let linked = t.0.join("ci/linked-receipt.json");
+        symlink(&receipt, &linked).unwrap();
+        assert!(load_context_in(&t.0, &linked).is_err());
     }
 
     #[test]
