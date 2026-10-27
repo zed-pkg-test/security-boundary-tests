@@ -1,0 +1,30 @@
+// Demonstration of the Java/GraalVM native HTTP actor transfer API.
+// This example handles 16 requests and exits. It is NOT the full API server.
+// It needs a runner with the NET listener capability granted.
+define isoactor HealthHandler as
+  receive(ActorMail<String> mail): void {
+    val request = http.claim(mail.value);
+    if request.method == "GET" && request.path_size == 1 &&
+       request.path_at(0) == "healthz"; then
+      await request.respond(200, "application/json",
+                            "{\"status\":\"ok\",\"component\":\"orestra\"}");
+    else
+      await request.respond(404, "application/json", "{\"error\":\"not_found\"}");
+    fi
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val server = http.listen("127.0.0.1", 0, 32, 4096, 5000);
+  val handler = http.handler("HealthHandler").pooled(4);
+  stdio.println(server.port);
+  for (let int i = 0; i < 16; i = i + 1) {
+    val request = await server.accept();
+    val completion = request.completion;
+    handler.dispatch(rt borrow mut request);
+    await completion;
+  }
+  await server.shutdown(1000);
+  return;
+}

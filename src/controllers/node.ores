@@ -1,0 +1,11 @@
+define module nodehealth as
+  pub fnc heartbeat_is_current(int now_ticks, int last_ticks,
+                               int ttl_ticks): bool {
+    if ttl_ticks <= 0 || now_ticks < last_ticks; do return false; fi
+    return now_ticks - last_ticks <= ttl_ticks;
+  }
+  pub fnc may_schedule(bool ready, bool unschedulable,
+                       bool heartbeat_current): bool {
+    return ready && !unschedulable && heartbeat_current;
+  }
+end

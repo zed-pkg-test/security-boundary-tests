@@ -1,0 +1,67 @@
+import fnc {may_commit, reservation_identity_matches} from "../src/scheduler/reservation.ores";
+import fnc {may_accept_start, running_ack_valid, stopped_ack_valid} from "../src/agent/commands.ores";
+import fnc {valid_resource_request, update_preconditions} from "../src/api/admission.ores";
+
+pub routine main(): void {
+  if !valid_resource_request(1, 250, 268435456); do
+    stdio.println("ERROR: valid workload rejected");
+    return;
+  fi
+  if update_preconditions(5, 7, 10, 10); do
+    stdio.println("ERROR: generation jump admitted");
+    return;
+  fi
+  if !may_commit(true, false,
+                 4, 4,
+                 12, 12,
+                 9, 9,
+                 1000, 600, 400,
+                 1000, 600, 400); do
+    stdio.println("ERROR: valid reservation rejected");
+    return;
+  fi
+  if may_commit(true, false,
+                4, 3,
+                12, 12,
+                9, 9,
+                1000, 0, 100,
+                1000, 0, 100); do
+    stdio.println("ERROR: stale node generation committed");
+    return;
+  fi
+  if may_commit(true, false,
+                4, 4,
+                12, 12,
+                9, 8,
+                1000, 0, 100,
+                1000, 0, 100); do
+    stdio.println("ERROR: stale scheduler epoch committed");
+    return;
+  fi
+  if may_accept_start(8, 7, 3, 2, true, false); do
+    stdio.println("ERROR: stale agent command accepted");
+    return;
+  fi
+  if !may_accept_start(8, 8, 3, 2, true, false); do
+    stdio.println("ERROR: current start command rejected");
+    return;
+  fi
+  if running_ack_valid(8, 8, 3, 3, false); do
+    stdio.println("ERROR: running claimed without process observation");
+    return;
+  fi
+  if !running_ack_valid(8, 8, 3, 3, true); do
+    stdio.println("ERROR: valid running acknowledgement rejected");
+    return;
+  fi
+  if stopped_ack_valid(8, 7, 3, 3, true); do
+    stdio.println("ERROR: stale stop acknowledgement accepted");
+    return;
+  fi
+  if !reservation_identity_matches(4, 4, 3, 3); do
+    stdio.println("ERROR: reservation identity mismatch");
+    return;
+  fi
+  stdio.println("orestra-control-plane-ok");
+  return;
+}

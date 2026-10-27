@@ -1,0 +1,23 @@
+import fnc {fits, packing_score} from "../src/scheduler/placement.ores";
+import fnc {missing_replicas, excess_replicas} from "../src/controllers/deployment.ores";
+
+pub routine main(): void {
+  if !fits(4000, 1000, 500, 8589934592, 1073741824, 268435456); do
+    stdio.println("ERROR: expected placement to fit");
+    return;
+  fi
+  if fits(1000, 900, 200, 1000, 0, 1); do
+    stdio.println("ERROR: oversubscription");
+    return;
+  fi
+  if packing_score(1000, 900, 200, 1000, 0, 1) != -1; do
+    stdio.println("ERROR: unfit node scored");
+    return;
+  fi
+  if missing_replicas(3, 1) != 2 || excess_replicas(3, 5) != 2; do
+    stdio.println("ERROR: reconcile math");
+    return;
+  fi
+  stdio.println("orestra-placement-ok");
+  return;
+}

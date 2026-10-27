@@ -1,21 +1,14 @@
+# Generated artifacts
+.DS_Store
+*.log
+*.tmp
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+build/
+coverage/
+/target/
 .env
 .env.*
 !.env.example
-__pycache__/
-*.py[cod]
-.coverage
-htmlcov/
-.venv/
-
-# >>> ores fleet hygiene — managed block, edits below are overwritten >>>
-tmp/temp/
-tmp/worktrees/
-# <<< ores fleet hygiene <<<
-
-# Repository-local temporary data and authorized Git worktrees
-tmp/
-temp/
-temp/worktrees
-
-# machine-local symlink to ORESoftware/my-ai AGENTS.md; never committed
-.ores/

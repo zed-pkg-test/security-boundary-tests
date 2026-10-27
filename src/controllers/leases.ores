@@ -1,0 +1,11 @@
+// Only authoritative, transactional storage may accept leadership changes.
+define module leaseguard as
+  pub fnc accepts_epoch(int current_epoch, int proposed_epoch,
+                        bool current_holder): bool {
+    return current_holder && current_epoch > 0 &&
+           proposed_epoch == current_epoch;
+  }
+  pub fnc is_new_epoch(int last_epoch, int next_epoch): bool {
+    return last_epoch >= 0 && next_epoch > last_epoch;
+  }
+end

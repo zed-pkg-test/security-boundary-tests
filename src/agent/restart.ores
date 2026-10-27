@@ -1,0 +1,16 @@
+define module restart as
+  // 0 Always, 1 OnFailure, 2 Never. Unknown policy fails closed.
+  pub fnc restart_needed(int policy, int exit_code,
+                         bool deletion_requested): bool {
+    if deletion_requested; do return false; fi
+    if policy == 0; do return true; fi
+    if policy == 1; do return exit_code != 0; fi
+    return false;
+  }
+  pub fnc may_launch(int desired_generation, int observed_generation,
+                     bool fenced, bool terminating): bool {
+    return desired_generation > 0 &&
+           desired_generation >= observed_generation &&
+           fenced && !terminating;
+  }
+end

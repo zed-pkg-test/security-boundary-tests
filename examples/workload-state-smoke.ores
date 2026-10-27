@@ -1,0 +1,23 @@
+import fnc {valid_transition, replacement_safe} from "../src/controllers/workload_state.ores";
+
+pub routine main(): void {
+  if !valid_transition("Pending", "Assigned", false, false, false); do
+    stdio.println("ERROR: rejected legitimate binding");
+    return;
+  fi
+  if valid_transition("Assigned", "Running", false, false, false); do
+    stdio.println("ERROR: claimed running before sandbox observation");
+    return;
+  fi
+  if valid_transition("Unknown", "Stopped", false, false, false); do
+    stdio.println("ERROR: lost external fence requirement");
+    return;
+  fi
+  if replacement_safe("Unknown", false) ||
+     !replacement_safe("Unknown", true); do
+    stdio.println("ERROR: unsafe replacement");
+    return;
+  fi
+  stdio.println("orestra-workload-state-ok");
+  return;
+}

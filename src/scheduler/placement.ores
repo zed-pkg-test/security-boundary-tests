@@ -1,0 +1,44 @@
+// Pure placement decisions. Snapshot scoring is advisory; reservations require CAS.
+define module placement as
+  pub fnc fits(int capacity_cpu, int used_cpu, int need_cpu,
+               int capacity_mem, int used_mem, int need_mem): bool {
+    if capacity_cpu < 0 || used_cpu < 0 || need_cpu <= 0; do
+      return false;
+    fi
+    if capacity_mem < 0 || used_mem < 0 || need_mem <= 0; do
+      return false;
+    fi
+    // Subtraction prevents signed overflow in a used + need expression.
+    if used_cpu > capacity_cpu || used_mem > capacity_mem; do
+      return false;
+    fi
+    return need_cpu <= capacity_cpu - used_cpu &&
+           need_mem <= capacity_mem - used_mem;
+  }
+
+  // Higher score packs more tightly; only compare among nodes that fit.
+  // Callers must not use this as a reservation or a scheduler commit.
+  pub fnc packing_score(int capacity_cpu, int used_cpu, int need_cpu,
+                        int capacity_mem, int used_mem, int need_mem): int {
+    if !fits(capacity_cpu, used_cpu, need_cpu,
+             capacity_mem, used_mem, need_mem); do
+      return -1;
+    fi
+    // Avoid float nondeterminism and zero denominators.
+    if capacity_cpu == 0 || capacity_mem == 0; do
+      return -1;
+    fi
+    // Oreslang '/' is real division, not integer division.
+    // Pre-alpha deterministic absolute-CPU packing heuristic.
+    // Filter already checks CPU and memory feasibility without overflow.
+    // Future: checked fixed-point utilization with explicit integer division.
+    return used_cpu + need_cpu;
+  }
+
+  pub fnc preferred(int score_left, int score_right,
+                    int stable_id_left, int stable_id_right): bool {
+    if score_left > score_right; do return true; fi
+    if score_left < score_right; do return false; fi
+    return stable_id_left < stable_id_right;
+  }
+end

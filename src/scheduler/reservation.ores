@@ -1,0 +1,34 @@
+// Transaction preconditions for committing a scheduler reservation.
+// These helpers are pure. The authoritative store must evaluate them atomically
+// with the workload binding and reservation write.
+define module reservation as
+  pub fnc may_commit(bool node_ready, bool node_unschedulable,
+                     int node_generation, int expected_node_generation,
+                     int workload_version, int expected_workload_version,
+                     int active_scheduler_epoch, int claimed_scheduler_epoch,
+                     int capacity_cpu, int reserved_cpu, int need_cpu,
+                     int capacity_mem, int reserved_mem, int need_mem): bool {
+    if !node_ready || node_unschedulable; do return false; fi
+    if node_generation <= 0 ||
+       node_generation != expected_node_generation; do return false; fi
+    if workload_version <= 0 ||
+       workload_version != expected_workload_version; do return false; fi
+    if active_scheduler_epoch <= 0 ||
+       claimed_scheduler_epoch != active_scheduler_epoch; do return false; fi
+    if capacity_cpu < 0 || reserved_cpu < 0 || need_cpu <= 0; do return false; fi
+    if capacity_mem < 0 || reserved_mem < 0 || need_mem <= 0; do return false; fi
+    if reserved_cpu > capacity_cpu || reserved_mem > capacity_mem; do return false; fi
+    return need_cpu <= capacity_cpu - reserved_cpu &&
+           need_mem <= capacity_mem - reserved_mem;
+  }
+
+  pub fnc reservation_identity_matches(int current_node_generation,
+                                       int reservation_node_generation,
+                                       int current_workload_generation,
+                                       int reservation_workload_generation): bool {
+    return current_node_generation > 0 &&
+           current_workload_generation > 0 &&
+           current_node_generation == reservation_node_generation &&
+           current_workload_generation == reservation_workload_generation;
+  }
+end

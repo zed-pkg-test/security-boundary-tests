@@ -1,0 +1,42 @@
+// Workload transition guards; pure, deterministic Oreslang.
+// All external side effects must be verified by an agent before transition.
+define module workload_state as
+  pub fnc valid_transition(String previous_phase, String next_phase,
+                           bool sandbox_observed,
+                           bool delete_requested,
+                           bool external_fence_proven): bool {
+    if previous_phase == next_phase; do return true; fi
+    if previous_phase == "Pending" && next_phase == "Assigned"; do
+      return !delete_requested;
+    fi
+    if previous_phase == "Assigned" && next_phase == "Running"; do
+      return sandbox_observed && !delete_requested;
+    fi
+    if previous_phase == "Running" && next_phase == "Succeeded"; do
+      return sandbox_observed;
+    fi
+    if previous_phase == "Running" && next_phase == "Failed"; do
+      return sandbox_observed;
+    fi
+    if next_phase == "Terminating"; do
+      return delete_requested && (previous_phase == "Pending" ||
+             previous_phase == "Assigned" || previous_phase == "Running" || previous_phase == "Failed");
+    fi
+    if next_phase == "Stopped" && previous_phase == "Terminating"; do
+      return external_fence_proven;
+    fi
+    if next_phase == "Unknown" && (previous_phase == "Assigned" || previous_phase == "Running"); do
+      return !sandbox_observed;
+    fi
+    if previous_phase == "Unknown" && next_phase == "Stopped"; do
+      return external_fence_proven;
+    fi
+    return false;
+  }
+
+  pub fnc replacement_safe(String old_phase, bool external_fence_proven): bool {
+    if old_phase == "Succeeded" || old_phase == "Stopped"; do return true; fi
+    if old_phase == "Unknown"; do return external_fence_proven; fi
+    return false;
+  }
+end

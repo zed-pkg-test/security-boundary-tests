@@ -1,16 +1,27 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+**Oreslang-native orchestration control plane** (pre-alpha).
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
+This is the primary source repository. Its initial implementation is pure
+Oreslang scheduling, deployment, node-health and restart-policy logic, with
+an architecture specification, smoke example and CI source checks. It is not
+yet a networked cluster or Kubernetes replacement.
 
-## Run
+- `src/scheduler/placement.ores`: safe capacity checks and deterministic scoring
+- `src/controllers/deployment.ores`: desired/observed replica reconciliation math
+- `src/controllers/node.ores`: liveness predicates
+- `src/controllers/leases.ores`: fail-closed fencing validation helpers
+- `src/agent/restart.ores`: restart/relaunch predicates
+- `spec/CONTROL_PLANE.md`: authority and failure boundaries
+- `docs/IMPLEMENTATION_GAPS.md`: explicit work remaining
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
-```
+Run the Rust structural source/import gate using `cargo run -- --root .`;
+run its fixture tests with `cargo test`. The checker rejects missing imports,
+tabs, unbalanced brace counts, and insufficient source/example inventory.
+It intentionally does **not** compile or execute Oreslang.
 
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
-
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+The Oreslang compiler is developed in
+[ores-truffle-oreslang/oreslang-source.java](https://github.com/ores-truffle-oreslang/oreslang-source.java)
+and its LLVM companion; run the smoke example with a compatible Oreslang
+compiler build. The CI gate here is **structural only** until compiler
+integration is configured.

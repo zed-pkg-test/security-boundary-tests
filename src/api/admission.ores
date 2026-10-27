@@ -1,0 +1,22 @@
+// Minimal fail-closed admission helpers for the v1alpha1 control-plane slice.
+// Structural schema validation and authorization remain API-server concerns.
+define module admission as
+  pub fnc valid_generation(int generation): bool {
+    return generation > 0;
+  }
+
+  pub fnc valid_resource_request(int generation, int cpu_millis,
+                                 int memory_bytes): bool {
+    return generation > 0 && cpu_millis > 0 && memory_bytes > 0;
+  }
+
+  pub fnc update_preconditions(int stored_generation, int proposed_generation,
+                               int stored_version, int expected_version): bool {
+    if stored_generation <= 0 || proposed_generation <= 0; do return false; fi
+    if stored_version <= 0 || expected_version <= 0; do return false; fi
+    if stored_version != expected_version; do return false; fi
+    // An update can preserve generation or advance it exactly once.
+    return proposed_generation == stored_generation ||
+           proposed_generation == stored_generation + 1;
+  }
+end

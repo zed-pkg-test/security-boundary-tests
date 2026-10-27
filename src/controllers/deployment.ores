@@ -1,0 +1,32 @@
+// Controller mathematics: idempotent reconciliation must read fresh snapshots.
+define module deployment as
+  pub fnc missing_replicas(int desired, int active): int {
+    if desired < 0 || active < 0; do return -1; fi
+    if desired <= active; do return 0; fi
+    return desired - active;
+  }
+
+  pub fnc excess_replicas(int desired, int active): int {
+    if desired < 0 || active < 0; do return -1; fi
+    if active <= desired; do return 0; fi
+    return active - desired;
+  }
+
+  pub fnc may_create(int desired, int actual, int pending,
+                     int max_surge): bool {
+    if desired < 0 || actual < 0 || pending < 0 || max_surge < 0; do
+      return false;
+    fi
+    if max_surge > 9223372036854775807 - desired; do
+      return false;
+    fi
+    if actual > desired + max_surge; do return false; fi
+    return pending < desired + max_surge - actual;
+  }
+
+  pub fnc may_terminate(int desired, int ready, int max_unavailable): bool {
+    if desired < 0 || ready <= 0 || max_unavailable < 0; do return false; fi
+    if max_unavailable >= desired; do return true; fi
+    return ready - 1 >= desired - max_unavailable;
+  }
+end

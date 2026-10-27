@@ -1,0 +1,33 @@
+// Node-agent command fencing. A scheduler/controller decision is not proof that
+// an OCI process started or stopped; the current agent epoch must acknowledge it.
+define module agent_commands as
+  pub fnc may_accept_start(int current_agent_epoch, int command_agent_epoch,
+                           int desired_generation, int observed_generation,
+                           bool node_ready, bool deletion_requested): bool {
+    if current_agent_epoch <= 0 ||
+       command_agent_epoch != current_agent_epoch; do return false; fi
+    if desired_generation <= 0 || observed_generation < 0; do return false; fi
+    if desired_generation < observed_generation; do return false; fi
+    return node_ready && !deletion_requested;
+  }
+
+  pub fnc running_ack_valid(int current_agent_epoch, int ack_agent_epoch,
+                            int desired_generation, int ack_generation,
+                            bool process_observed): bool {
+    return process_observed &&
+           current_agent_epoch > 0 &&
+           ack_agent_epoch == current_agent_epoch &&
+           desired_generation > 0 &&
+           ack_generation == desired_generation;
+  }
+
+  pub fnc stopped_ack_valid(int current_agent_epoch, int ack_agent_epoch,
+                            int desired_generation, int ack_generation,
+                            bool process_absent): bool {
+    return process_absent &&
+           current_agent_epoch > 0 &&
+           ack_agent_epoch == current_agent_epoch &&
+           desired_generation > 0 &&
+           ack_generation == desired_generation;
+  }
+end

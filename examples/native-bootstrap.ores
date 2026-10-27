@@ -1,0 +1,94 @@
+// M1 EXPERIMENTAL: single-process actor/HTTP startup *scaffold*.
+// A real Oreslang compiler/backend must compile and run this before it becomes
+// evidence. These actors do not implement durable state, scheduling or OCI.
+// Never advertise /readyz until these dependencies are live and fenced.
+define actor StateBootstrap as
+
+  receive(ActorMail<String> mail): void {
+    if mail.value == "shutdown"; then
+      self.end();
+    fi
+    return;
+  }
+end
+
+define actor SchedulerBootstrap as
+
+  receive(ActorMail<String> mail): void {
+    if mail.value == "shutdown"; then
+      self.end();
+    fi
+    return;
+  }
+end
+
+define actor NodeAgentBootstrap as
+
+  receive(ActorMail<String> mail): void {
+    if mail.value == "shutdown"; then
+      self.end();
+    fi
+    return;
+  }
+end
+
+define isoactor BootstrapHttpHandler as
+  receive(ActorMail<String> mail): void {
+    val request = http.claim(mail.value);
+    if request.method == "GET" && request.path_size == 1 &&
+       request.path_at(0) == "healthz"; then
+      await request.respond(200, "application/json",
+                            "{\"status\":\"ok\",\"component\":\"orestra-bootstrap\"}");
+    elif request.method == "GET" && request.path_size == 1 &&
+         request.path_at(0) == "readyz"; then
+      // Booted actor processes are not equivalent to a safe, ready cluster.
+      await request.respond(503, "application/json",
+                            "{\"status\":\"not_ready\",\"reason\":\"native_backend_and_storage_unverified\"}");
+    elif request.path_size > 0 && request.path_at(0) == "v1alpha1"; then
+      // No unauthenticated CRUD, watch or agent endpoints in the scaffold.
+      await request.respond(401, "application/json",
+                            "{\"error\":\"authentication_required\"}");
+    else
+      await request.respond(404, "application/json", "{\"error\":\"not_found\"}");
+    fi
+    return;
+  }
+end
+
+pub async routine main(): void {
+  // Intentionally stateless: zero actor-owned persistent fields. Future
+  // stateful actors must use only the sealed single 'state' schema and
+  // critical state-loan API, never ad hoc mutable instance fields.
+  // No cross-actor heap sharing. Each actor has a distinct mailbox.
+  // This is a lifecycle proof of concept, not an authoritative state service.
+  const state = spawn StateBootstrap();
+  await state.get_ready();
+  const scheduler = spawn SchedulerBootstrap();
+  await scheduler.get_ready();
+  const agent = spawn NodeAgentBootstrap();
+  await agent.get_ready();
+
+  state.send("boot");
+  scheduler.send("boot");
+  agent.send("boot");
+
+  // Hardcoded loopback, bounded queue/body/deadline and deterministic shutdown.
+  const server = http.listen("127.0.0.1", 0, 32, 4096, 5000);
+  const handler = http.handler("BootstrapHttpHandler").pooled(4);
+  stdio.println(server.port);
+  for (let int i = 0; i < 16; i = i + 1) {
+    val exchange = await server.accept();
+    val completed = exchange.completion;
+    handler.dispatch(rt borrow mut exchange);
+    await completed;
+  }
+  await server.shutdown(1000);
+
+  state.send("shutdown");
+  scheduler.send("shutdown");
+  agent.send("shutdown");
+  await state.get_done();
+  await scheduler.get_done();
+  await agent.get_done();
+  return;
+}

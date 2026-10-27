@@ -1,0 +1,24 @@
+import fnc {fits, packing_score} from "../src/scheduler/placement.ores";
+import fnc {may_create, may_terminate} from "../src/controllers/deployment.ores";
+
+pub routine main(): void {
+  if fits(9223372036854775807, 9223372036854775800, 20, 100, 0, 1); do
+    stdio.println("ERROR: overflow feasibility");
+    return;
+  fi
+  if packing_score(9223372036854775807, 0, 9223372036854775807,
+                   100, 0, 1) != 9223372036854775807; do
+    stdio.println("ERROR: checked score lost exact large value");
+    return;
+  fi
+  if may_create(9223372036854775800, 0, 0, 100); do
+    stdio.println("ERROR: surge overflow");
+    return;
+  fi
+  if may_terminate(3, 2, 1); do
+    stdio.println("ERROR: rollout availability");
+    return;
+  fi
+  stdio.println("orestra-edge-guards-ok");
+  return;
+}
