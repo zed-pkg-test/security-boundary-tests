@@ -1,0 +1,36 @@
+{
+  "schema": "ores-private-ci-test-plan-v1",
+  "source_repo": "ores-truffle-oreslang/oreslang-source.net",
+  "allowed_prs": [
+    180
+  ],
+  "commands": [
+    {
+      "argv": [
+        "dotnet",
+        "run",
+        "--project",
+        "verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj",
+        "--configuration",
+        "Release",
+        "--disable-build-servers",
+        "-p:RestoreIgnoreFailedSources=true",
+        "-p:NuGetAudit=false"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1200,
+      "stdout_contains": "DOTNET_GENERATOR_V1_PASS"
+    }
+  ],
+  "required_source_blobs": {
+    "Directory.Build.props": "853937879012114d85f258bbc69658d525e8db03",
+    "global.json": "ebd0c5d8b48b09a4e74a5c7d5ce485e4eb2b324c",
+    "compiler/Ores.Net.Compiler.Core/Ores.Net.Compiler.Core.csproj": "109614909a348fc6d561a33c3a7aa0a56eb473f3",
+    "compiler/Ores.Net.Compiler.Core/GeneratorSourceV1.cs": "59c4217d5b8c9eb4b59c43afe992c70d594c47b8",
+    "runtime/Ores.Net.Runtime/Ores.Net.Runtime.csproj": "14ffc2e74b8c70bff8f54ec5eb0d86012c43ac8b",
+    "runtime/Ores.Net.Runtime/GeneratorFrameV1.cs": "24a59e558b4b0821d133349c2f6b195c4cc814cb",
+    "runtime/Ores.Net.Runtime/LiteralGeneratorActivationV1.cs": "1e86e2ffa3450bb1c9621187811c5b961256255e",
+    "verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj": "f8c3dd056db15eb5b6b4f1ed3763e76d182b9697",
+    "verification/Ores.Net.Generator.Tests/Program.cs": "26b203beed8b4b62ee4d68d3c8639fb142ab7908"
+  }
+}
