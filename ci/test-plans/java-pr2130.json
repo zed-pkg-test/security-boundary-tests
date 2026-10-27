@@ -49,11 +49,12 @@
     "examples/generator-v1.ores": "5cee82aefeb4fd09190b5242c9107ee0eab39b6e",
     "src/main/java/dev/oreslang/nodes/OresEvalRootNode.java": "89cce582df40add262151740bd1ea2b4806b8e8c",
     "src/main/java/dev/oreslang/parser/Parser.java": "7e74c2048806e2846e4b6968ab49a31c215bc6c2",
-    "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java": "67a60059c4fc89fb40d8468747d5e805410abccc",
+    "src/main/java/dev/oreslang/runtime/GeneratorRuntime.java": "898db2ea73b4ce62a55bab50b5bc5ac49124a3ca",
     "src/main/java/dev/oreslang/types/OwnershipChecker.java": "608063ae9de771c4ffa402f9c46be68fbc46102d",
     "src/main/java/dev/oreslang/types/TypeChecker.java": "d6cb6959f32e633509d0b2db7b42934786e8ce9a",
     "src/test/java/dev/oreslang/GeneratorCanonicalAdmissionTest.java": "c9ff9c8bce78928f03db7a8312ff20b8d11882d1",
     "src/test/java/dev/oreslang/GeneratorLanguageTest.java": "e52d422af8e1a02cc4679678e73d9be301c9dd49",
-    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "b046e41db168d556bbe1579cf07bf8b3d5df6039"
+    "src/test/java/dev/oreslang/runtime/GeneratorRuntimeTest.java": "625032d4d386771695d9f268ddd897563c2e946f",
+    "src/main/java/dev/oreslang/runtime/AsyncRuntime.java": "a14f4390d005aa408a797a9f10611d005221365d"
   }
 }
