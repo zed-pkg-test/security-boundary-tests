@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
 const MAX_SOURCE_FILES: usize = 4096;
 const MAX_IMPORTS_PER_SOURCE: usize = 4096;
+const MAX_IMPORT_TARGET_BYTES: usize = 4096;
 
 fn imports(source: &str) -> Vec<String> {
     // Match the legacy check's from\s+"..." pattern without a regex dependency.
@@ -80,6 +81,9 @@ fn check_source(root: &Path, path: &Path) -> Result<(), String> {
         return Err(deny("too many import declarations"));
     }
     for import in imports {
+        if import.len() > MAX_IMPORT_TARGET_BYTES || import.contains('\0') {
+            return Err(deny("invalid import target"));
+        }
         if import.starts_with('.') {
             let candidate = path.parent().unwrap_or(Path::new(".")).join(&import);
             let metadata = fs::symlink_metadata(&candidate)
@@ -228,6 +232,22 @@ mod tests {
         let root = fixture();
         let mut out = vec![PathBuf::new(); MAX_SOURCE_FILES];
         assert!(collect(&root.join("src"), true, &mut out).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_or_nul_import_target() {
+        let root = fixture();
+        let oversized = format!(
+            "from \"./{}\"\nreturn {{}}\n",
+            "x".repeat(MAX_IMPORT_TARGET_BYTES + 1)
+        );
+        fs::write(root.join("src/deep/1.ores"), oversized).unwrap();
+        assert!(check(&root).unwrap_err().contains("invalid import target"));
+
+        fs::write(root.join("src/deep/1.ores"), "from \"./bad\0target.ores\"\nreturn {}\n").unwrap();
+        assert!(check(&root).unwrap_err().contains("invalid import target"));
+
         fs::remove_dir_all(root).unwrap();
     }
 
