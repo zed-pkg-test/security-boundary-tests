@@ -40,7 +40,7 @@ jobs:
 
           while IFS= read -r -d '' path; do
             case "$path" in
-              .github/*|tests/*|test/*|scripts/*|tools/*|reference/*|formal/*|model/*|docs/*|source/*)
+              .github/*|tests/*|test/*|scripts/*|tools/*|reference/*|formal/*|model/*|docs/*|source/*|carrier/*)
                 continue ;;
             esac
             case "$path" in
