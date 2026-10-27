@@ -2,6 +2,7 @@
 use std::{env, fs, path::{Path, PathBuf}};
 
 const MAX_SOURCE_BYTES: u64 = 1_048_576;
+const MAX_SOURCE_FILES: usize = 4096;
 
 fn validate_source(source: &str) -> Result<(), &'static str> {
     if !source.contains("define module") || !source.contains("end") {
@@ -39,6 +40,11 @@ fn collect_sources(dir: &Path, paths: &mut Vec<PathBuf>) -> Result<(), String> {
         if file_type.is_dir() {
             collect_sources(&path, paths)?;
         } else if file_type.is_file() && path.extension().is_some_and(|ext| ext == "ores") {
+            if paths.len() >= MAX_SOURCE_FILES {
+                return Err(format!(
+                    "SDK source inventory exceeds {MAX_SOURCE_FILES} modules"
+                ));
+            }
             let metadata = entry.metadata().map_err(|e| format!("{}: {e}", path.display()))?;
             if metadata.len() > MAX_SOURCE_BYTES {
                 return Err(format!("SDK source exceeds {MAX_SOURCE_BYTES} bytes: {}", path.display()));
@@ -144,6 +150,22 @@ mod tests {
         .unwrap();
 
         assert!(check(&root).is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_source_inventory() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-sdk-count-{}-{nonce}", std::process::id()));
+        let src = root.join("src");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("one.ores"), VALID).unwrap();
+
+        let mut paths = vec![PathBuf::new(); MAX_SOURCE_FILES];
+        assert!(collect_sources(&src, &mut paths).is_err());
+
         fs::remove_dir_all(&root).unwrap();
     }
 
