@@ -6,6 +6,9 @@ const MAX_SOURCE_FILES: usize = 4096;
 const MAX_SOURCE_DEPTH: usize = 64;
 
 fn validate_source(source: &str) -> Result<(), &'static str> {
+    if source.contains('\0') {
+        return Err("NUL byte forbidden in Oreslang source");
+    }
     if !source.contains("define module") || !source.contains("end") {
         return Err("missing module boundaries");
     }
@@ -103,6 +106,11 @@ mod tests {
     #[test]
     fn accepts_logical_and_or() {
         assert!(validate_source(VALID).is_ok());
+    }
+
+    #[test]
+    fn rejects_nul_bearing_source() {
+        assert!(validate_source(&format!("{VALID}\0")).is_err());
     }
 
     #[test]
