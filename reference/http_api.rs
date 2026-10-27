@@ -19,6 +19,9 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 type HmacSha256 = Hmac<Sha256>;
 
+const MAX_QUERY_BYTES: usize = 8192;
+const MAX_QUERY_PARAMS: usize = 32;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApiError {
     BadRequest(String),
@@ -758,7 +761,13 @@ fn parse_query(query: &str) -> Result<HashMap<String, String>, ApiError> {
     if query.is_empty() {
         return Ok(result);
     }
-    for part in query.split('&') {
+    if query.len() > MAX_QUERY_BYTES {
+        return Err(ApiError::BadRequest("query string too large".into()));
+    }
+    for (index, part) in query.split('&').enumerate() {
+        if index >= MAX_QUERY_PARAMS {
+            return Err(ApiError::BadRequest("too many query parameters".into()));
+        }
         let (key, value) = part.split_once('=').unwrap_or((part, ""));
         let key = percent_decode(key)?;
         let value = percent_decode(value)?;
