@@ -258,6 +258,25 @@ class TrustedPlanRunnerTest(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaises(runner.Denied):
                 runner.validate_cargo_argv(argv)
 
+    def test_node_commands_are_test_only_and_confined(self):
+        runner.validate_node_argv(["node", "--test"])
+        runner.validate_node_argv(["node", "--test", "tests/generator-v1.test.mjs"])
+        runner.validate_node_argv([
+            "node", "--test",
+            "tests/generator-v1.test.mjs",
+            "tests/nested/path.test.mjs",
+        ])
+        for argv in (
+            ["node", "bin/oreslang-jsc.mjs"],
+            ["node", "--eval", "process.exit(0)"],
+            ["node", "--test", "--test-reporter=tap"],
+            ["node", "--test", "../escape.test.mjs"],
+            ["node", "--test", "/tmp/escape.test.mjs"],
+            ["node", "--test", "src/not-a-test.mjs"],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(runner.Denied):
+                runner.validate_node_argv(argv)
+
     def test_reviewed_rust_plan_rejects_project_cargo_config(self):
         plan = {"commands":[{"argv":["cargo","test","--offline"],"cwd":".","timeout_seconds":30}]}
         root = self.root/"private-oreslang-source"
