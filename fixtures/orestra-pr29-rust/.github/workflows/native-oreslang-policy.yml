@@ -1,0 +1,69 @@
+name: Native Oreslang policy
+on:
+  push:
+    branches-ignore:
+      - 'ci/oreslang-*'
+      - 'ci/oreslang-control-*'
+  pull_request:
+permissions: {contents: read}
+
+jobs:
+  native-oreslang-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Enforce native Oreslang production boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          shipping_roots=(src bin runtime native cmd server service services daemon daemons agent scheduler drivers state api cli sdk)
+
+          accept_shipping_entry() {
+            local mode="$1" path="$2"
+            case "$mode" in 100644|100755) ;; *) return 1 ;; esac
+            case "$path" in *.ores) return 0 ;; *) return 1 ;; esac
+          }
+
+          accept_shipping_entry 100644 src/good.ores
+          if accept_shipping_entry 100644 src/evil.py; then exit 91; fi
+          if accept_shipping_entry 100755 src/evil; then exit 92; fi
+          if accept_shipping_entry 120000 src/link.ores; then exit 93; fi
+          if accept_shipping_entry 160000 src/submodule.ores; then exit 94; fi
+
+          bad=0
+          while IFS= read -r -d '' record; do
+            meta="${record%%$'\t'*}"; path="${record#*$'\t'}"; mode="${meta%% *}"
+            if ! accept_shipping_entry "$mode" "$path"; then
+              echo "forbidden shipping entry: mode=$mode path=$path" >&2
+              bad=1
+            fi
+          done < <(git ls-files -s -z -- "${shipping_roots[@]}" 2>/dev/null || true)
+
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              .github/*|tests/*|test/*|scripts/*|tools/*|reference/*|formal/*|model/*|docs/*|source/*|carrier/*)
+                continue ;;
+            esac
+            case "$path" in
+              *.py|*.pyw|*.js|*.mjs|*.cjs|*.ts|*.tsx|*.jsx|*.java|*.kt|*.kts|*.go|*.rs|*.c|*.cc|*.cpp|*.cxx|*.h|*.hh|*.hpp|*.cs|*.fs|*.fsx|*.rb|*.pl|*.pm|*.php|*.lua|*.swift|*.sh|*.bash|*.zsh|*.fish)
+                echo "host-language source outside non-production tree: $path" >&2
+                bad=1 ;;
+            esac
+          done < <(git ls-files -z)
+
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              *.ores)
+                if grep -nE '(^|[^[:alnum:]_])(reference|tests|test|tools|scripts|formal|model)/' "$path"; then
+                  echo "native production source references non-production tree: $path" >&2
+                  bad=1
+                fi ;;
+            esac
+          done < <(git ls-files -z -- "${shipping_roots[@]}" 2>/dev/null || true)
+
+          if [ "$bad" -ne 0 ]; then exit 1; fi
+          echo "native Oreslang production boundary: PASS"
