@@ -207,6 +207,13 @@ class ReviewedPlanValidatorTest(unittest.TestCase):
                 "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
                 "src/test/java/dev/oreslang/TreeShakerTest.java",
             },
+            "wasm-pr145.json": {
+                "package.json",
+                ".github/workflows/real-llvm.yml",
+                "scripts/verify-real-compiler.mjs",
+                "scripts/cleanup-real-compiler.mjs",
+                "tests/real-compiler-gate.test.mjs",
+            },
             "net-pr180.json": {
                 "Directory.Build.props",
                 "global.json",
