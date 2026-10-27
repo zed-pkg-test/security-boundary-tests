@@ -515,3 +515,36 @@ fn lease_identity_inputs_are_bounded() {
         Err(StoreError::Invalid(_))
     ));
 }
+
+
+#[test]
+fn reservation_identity_inputs_are_bounded() {
+    let (store, lease) = setup();
+    seed_node_and_workloads(&store, &lease);
+    let work_v = store.get("Workload/default/a").unwrap().0;
+    let node_v = store.get("Node/system/n1").unwrap().0;
+    let oversized_key = "x".repeat(1025);
+    let oversized_uid = "u".repeat(257);
+    let oversized_domain = "d".repeat(257);
+
+    for result in [
+        store.reserve(
+            &oversized_key, work_v, "uid-a", "Node/system/n1", "node-uid", node_v,
+            "Reservation/default/a", 1, 1, "cluster", &lease, 12,
+        ),
+        store.reserve(
+            "Workload/default/a", work_v, &oversized_uid, "Node/system/n1", "node-uid", node_v,
+            "Reservation/default/a", 1, 1, "cluster", &lease, 12,
+        ),
+        store.reserve(
+            "Workload/default/a", work_v, "uid-a", "Node/system/n1", "node-uid", node_v,
+            "Reservation/default/a", 1, 1, &oversized_domain, &lease, 12,
+        ),
+        store.reserve(
+            "Workload/default/a", work_v, "bad\0uid", "Node/system/n1", "node-uid", node_v,
+            "Reservation/default/a", 1, 1, "cluster", &lease, 12,
+        ),
+    ] {
+        assert!(matches!(result, Err(StoreError::Invalid(_))));
+    }
+}
