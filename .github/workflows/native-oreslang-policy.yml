@@ -17,7 +17,7 @@ jobs:
           set -euo pipefail
 
           shipping_roots=(src bin runtime native cmd server service services daemon daemons agent scheduler drivers state api cli sdk)
-          nonproduction_checker_blob=8565b1f2f5804b0cc3fa8bcb684e8ead8c379c28
+          nonproduction_checker_blob=b8a69c5fcf4b370f2c3e400f0de1308d3e6654ed
 
           accept_shipping_entry() {
             local mode="$1" path="$2"
