@@ -568,10 +568,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(dotnet --version)" = "10.0.100"
+          dotnet --list-sdks | grep -q '^10\.0\.100 '
           root="/tmp/oreslang-synthetic-dotnet-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           rm -rf "$root"
           mkdir -p "$root/source/verification/Ores.Net.Generator.Tests" "$root/control/ci/test-plans" "$root/home"
+          cat > "$root/source/global.json" <<'EOF'
+          {"sdk":{"version":"10.0.100","rollForward":"disable"}}
+          EOF
           cat > "$root/source/verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj" <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
