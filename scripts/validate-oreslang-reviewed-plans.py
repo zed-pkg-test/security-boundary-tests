@@ -35,6 +35,7 @@ REQUIRED_HARNESS_PATHS = {
     },
     "java-pr2130.json": {
         "pom.xml",
+        "src/main/java/dev/oreslang/runtime/AsyncRuntime.java",
         "docs/grammar.ebnf",
         "examples/generator-v1.ores",
         "src/main/java/dev/oreslang/nodes/OresEvalRootNode.java",
@@ -48,6 +49,7 @@ REQUIRED_HARNESS_PATHS = {
     },
     "java-pr2131.json": {
         "pom.xml",
+        "src/main/java/dev/oreslang/runtime/AsyncRuntime.java",
         "docs/grammar.ebnf",
         "examples/static-generator-v1.ores",
         "src/main/java/dev/oreslang/ast/Ast.java",
