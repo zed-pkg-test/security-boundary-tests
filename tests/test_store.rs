@@ -575,3 +575,30 @@ fn watch_inputs_are_bounded_before_scan() {
         Err(StoreError::ResetRequired(_))
     ));
 }
+
+
+#[test]
+fn mutation_keys_are_bounded_and_nul_free() {
+    let (store, lease) = setup();
+    let oversized = "k".repeat(1025);
+
+    assert!(matches!(
+        put(&store, &lease, "bad\0key", json!({"v":1}), None, 10),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        put(&store, &lease, &oversized, json!({"v":1}), None, 10),
+        Err(StoreError::Invalid(_))
+    ));
+
+    let rev = put(&store, &lease, "good", json!({"v":1}), None, 10).unwrap();
+    assert!(matches!(
+        store.delete("bad\0key", rev, "cluster", &lease, 11),
+        Err(StoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        store.delete(&oversized, rev, "cluster", &lease, 11),
+        Err(StoreError::Invalid(_))
+    ));
+    assert_eq!(store.get("good").unwrap().0, rev);
+}
