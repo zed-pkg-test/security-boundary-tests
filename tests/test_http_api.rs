@@ -684,3 +684,37 @@ fn oversized_route_path_fails_closed() {
     );
     assert_eq!(h.call("GET", &path, Some("reader"), None, &[]).0, 400);
 }
+
+
+#[test]
+fn duplicate_security_sensitive_headers_fail_closed() {
+    let h = Harness::new();
+
+    assert_eq!(
+        h.call(
+            "GET",
+            "/v1alpha1/default/workload",
+            Some("reader"),
+            None,
+            &[("Authorization", "Bearer admin")],
+        )
+        .0,
+        400
+    );
+
+    let (code, created) = h.create("dup-header");
+    assert_eq!(code, 201);
+    let mut update = created["object"].clone();
+    update["metadata"]["generation"] = json!(2);
+    assert_eq!(
+        h.call(
+            "PUT",
+            "/v1alpha1/default/workload/dup-header",
+            Some("admin"),
+            Some(&update),
+            &[("If-Match", "1"), ("If-Match", "1")],
+        )
+        .0,
+        400
+    );
+}
