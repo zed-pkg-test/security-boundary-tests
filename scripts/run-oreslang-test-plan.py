@@ -19,7 +19,7 @@ MAX_TIMEOUT = 1800
 MAX_LOG_CHARS = 64 * 1024
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 SAFE_ENV_KEYS = ("PATH", "JAVA_HOME", "GRAALVM_HOME", "LANG", "LC_ALL", "HOME")
-SAFE_EXECUTABLE = re.compile(r"^(?:python3|mvn|cmake|ctest|cargo|node|g\+\+|clang\+\+|/tmp/ores-[A-Za-z0-9_.-]+)$")
+SAFE_EXECUTABLE = re.compile(r"^(?:python3|mvn|cmake|ctest|cargo|node|dotnet|g\+\+|clang\+\+|/tmp/ores-[A-Za-z0-9_.-]+)$")
 
 
 class Denied(RuntimeError):
@@ -162,6 +162,21 @@ def validate_node_argv(argv):
             raise Denied("Node test path is not approved")
 
 
+DOTNET_GENERATOR_COMMAND = [
+    "dotnet", "run",
+    "--project", "verification/Ores.Net.Generator.Tests/Ores.Net.Generator.Tests.csproj",
+    "--configuration", "Release",
+    "--disable-build-servers",
+    "-p:RestoreIgnoreFailedSources=true",
+    "-p:NuGetAudit=false",
+]
+
+
+def validate_dotnet_argv(argv):
+    if argv != DOTNET_GENERATOR_COMMAND:
+        raise Denied("dotnet command is not the exact reviewed generator verifier")
+
+
 CARGO_ALLOWED_SUBCOMMANDS = {"fmt", "test", "clippy", "rustdoc", "build"}
 CARGO_OFFLINE_SUBCOMMANDS = {"test", "clippy", "rustdoc", "build"}
 
@@ -197,6 +212,8 @@ def validate_command(command, root):
         validate_cargo_argv(argv)
     if argv[0] == "node":
         validate_node_argv(argv)
+    if argv[0] == "dotnet":
+        validate_dotnet_argv(argv)
     timeout = command.get("timeout_seconds")
     if (not isinstance(timeout, int) or isinstance(timeout, bool)
             or timeout < 1 or timeout > MAX_TIMEOUT):
@@ -293,8 +310,14 @@ def clean_environment(home):
         "GIT_CONFIG_NOSYSTEM": "1",
         "CARGO_NET_OFFLINE": "true",
         "CARGO_HOME": str(home / "cargo"),
+        "DOTNET_CLI_HOME": str(home / "dotnet"),
+        "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+        "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+        "NUGET_XMLDOC_MODE": "skip",
     })
-    for path in (home / "config", home / "cache", home / "tmp", home / "cargo"):
+    for path in (
+            home / "config", home / "cache", home / "tmp",
+            home / "cargo", home / "dotnet"):
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return env
 
