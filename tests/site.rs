@@ -10,8 +10,16 @@ const MAX_HTML_FILES: usize = 4096;
 const MAX_LINKS_PER_HTML: usize = 4096;
 const MAX_IDS_PER_HTML: usize = 4096;
 const MAX_ATTR_VALUE_BYTES: usize = 4096;
+const MAX_HTML_DEPTH: usize = 64;
 
 fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    collect_html_at(dir, out, 0)
+}
+
+fn collect_html_at(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) -> Result<(), String> {
+    if depth > MAX_HTML_DEPTH {
+        return Err(format!("static-site tree exceeds depth bound of {MAX_HTML_DEPTH}"));
+    }
     for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
@@ -23,7 +31,7 @@ fn collect_html(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
             if path.file_name().is_some_and(|n| n == "target") {
                 continue;
             }
-            collect_html(&path, out)?;
+            collect_html_at(&path, out, depth + 1)?;
         } else if kind.is_file() && path.extension().is_some_and(|e| e == "html") {
             if out.len() >= MAX_HTML_FILES {
                 return Err(format!("static-site inventory exceeds {MAX_HTML_FILES} HTML files"));
@@ -246,4 +254,28 @@ fn html_link_and_id_fanout_are_bounded() {
 
     let oversized = format!("<a href=\"{}\">x</a>", "x".repeat(MAX_ATTR_VALUE_BYTES + 1));
     assert!(parse_links_and_ids(&oversized).is_err());
+}
+
+
+#[test]
+fn static_site_tree_depth_is_bounded() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "orestra-site-depth-{}-{nonce}",
+        std::process::id()
+    ));
+    let mut dir = root.clone();
+    fs::create_dir_all(&dir).unwrap();
+    for _ in 0..=MAX_HTML_DEPTH {
+        dir = dir.join("nested");
+        fs::create_dir(&dir).unwrap();
+    }
+    fs::write(dir.join("deep.html"), "<html></html>").unwrap();
+
+    let mut files = Vec::new();
+    assert!(collect_html(&root, &mut files).is_err());
+
+    fs::remove_dir_all(&root).unwrap();
 }
