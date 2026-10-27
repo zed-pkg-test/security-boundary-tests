@@ -2,6 +2,7 @@
 use serde_json::Value;
 use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 
+const MAX_DOC_BYTES: u64 = 1_048_576;
 const REPOSITORIES: [&str; 9] = [
     "orestra", "orestra-api", "orestra-cli", "orestra-sdk",
     "orestra-state", "orestra-drivers", "orestra-ui",
@@ -50,6 +51,10 @@ fn check_links(root: &Path) -> Result<usize, String> {
     files.sort();
     let mut broken = Vec::new();
     for file in &files {
+        let meta = fs::symlink_metadata(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        if meta.len() > MAX_DOC_BYTES {
+            return Err(format!("documentation file exceeds {MAX_DOC_BYTES} bytes: {}", file.display()));
+        }
         let src = fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
         for target in markdown_targets(&src) {
             if target.starts_with("https://") || target.starts_with("http://")
@@ -97,6 +102,13 @@ fn validate_lock(doc: &Value) -> Result<usize, &'static str> {
 
 fn check_lock(root: &Path) -> Result<usize, String> {
     let file = root.join("integration/compatibility.lock.json");
+    let meta = fs::symlink_metadata(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err(format!("integration lock must be a regular non-symlink file: {}", file.display()));
+    }
+    if meta.len() > MAX_DOC_BYTES {
+        return Err(format!("integration lock exceeds {MAX_DOC_BYTES} bytes: {}", file.display()));
+    }
     let bytes = fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     let doc: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", file.display()))?;
     validate_lock(&doc).map_err(|e| format!("{}: {e}", file.display()))
@@ -192,6 +204,28 @@ mod tests {
 
         assert!(check_links(&root).is_err());
         fs::remove_dir_all(&parent).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversized_markdown_and_lock_inputs() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = env::temp_dir().join(format!("orestra-docs-size-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(root.join("integration")).unwrap();
+        fs::write(root.join("README.md"), vec![b'x'; (MAX_DOC_BYTES + 1) as usize]).unwrap();
+        fs::write(root.join("integration/compatibility.lock.json"), "{}").unwrap();
+        assert!(check_links(&root).is_err());
+
+        fs::write(root.join("README.md"), "# ok\n").unwrap();
+        fs::write(
+            root.join("integration/compatibility.lock.json"),
+            vec![b'x'; (MAX_DOC_BYTES + 1) as usize],
+        )
+        .unwrap();
+        assert!(check_lock(&root).is_err());
+
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[cfg(unix)]
