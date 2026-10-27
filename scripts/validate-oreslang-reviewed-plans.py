@@ -8,10 +8,11 @@ import re
 import tempfile
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PLAN_NAME = re.compile(r"^(java|llvm|format)-pr([1-9][0-9]*)\.json$")
+PLAN_NAME = re.compile(r"^(java|llvm|js|format)-pr([1-9][0-9]*)\.json$")
 SOURCE_REPOS = {
     "java": "ores-truffle-oreslang/oreslang-source.java",
     "llvm": "ores-truffle-oreslang/oreslang-source.llvm",
+    "js": "ores-truffle-oreslang/oreslang-source.js",
     "format": "ores-truffle-oreslang/oreslang-format",
 }
 ALLOWED_PLAN_FIELDS = {
@@ -66,6 +67,12 @@ REQUIRED_HARNESS_PATHS = {
         "src/test/java/dev/oreslang/IncrementalFunctorStaticTest.java",
         "src/test/java/dev/oreslang/StaticGeneratorFunctionTest.java",
         "src/test/java/dev/oreslang/TreeShakerTest.java",
+    },
+    "js-pr85.json": {
+        "package.json",
+        "src/program-v2.mjs",
+        "src/program-ir-v2.mjs",
+        "tests/generator-v1.test.mjs",
     },
     "llvm-pr1075.json": {
         "CMakeLists.txt",
