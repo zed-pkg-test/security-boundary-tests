@@ -1,0 +1,23 @@
+name: Static site verification
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Reject tracked Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_files="$(git ls-files -- '*.py' '*.pyw')"
+          if [ -n "$python_files" ]; then
+            echo "Tracked Python sources are prohibited; use Rust for repository tooling/tests." >&2
+            printf '%s\n' "$python_files" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: {node-version: '22'}
+      - run: cargo test --all-targets
+      - run: node --check assets/site.js

@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'"><title>Getting started — Orestra</title><link rel="stylesheet" href="../assets/site.css"></head><body>
+<header class="nav wrap"><a class="brand" href="../index.html"><span class="symbol">◎</span> orestra</a><nav><a href="../index.html#architecture">Architecture</a><a href="./architecture.html">Docs</a></nav></header>
+<main class="page wrap"><p class="overline">DEVELOPER GUIDE</p><h1>Start with the foundations.</h1><p>Orestra is not yet a runnable cluster. The available Oreslang code covers pure scheduling and lifecycle decisions; Python fixtures/oracles are limited to conformance and offline tools.</p>
+<h2>Inspect and test the source</h2>
+<pre><code>git clone https://github.com/orestra/orestra.git
+git clone https://github.com/orestra/orestra-conformance.git
+cd orestra-conformance
+python3 scripts/run.py</code></pre>
+<p>Repositories may require GitHub organization access. The conformance command executes deterministic reference tests, not a live Kubernetes or Orestra cluster.</p>
+<h2>Explore the API contracts</h2><p>Browse <a href="https://github.com/orestra/orestra-api">orestra-api</a> for versioned schemas, gRPC messages and an OpenAPI draft. Browse <a href="https://github.com/orestra/orestra-state">orestra-state</a> for compare-and-swap, watch cursor and lease test models.</p>
+<h2>What comes next</h2><p>Oreslang HTTP server integration, a persistent transactional store, scheduler actors, OCI node agents and an actual three-node failure/recovery test. Until those exist, no production use is supported.</p></main>
+<footer class="wrap"><span>◎ orestra</span><span>Pre-alpha design and source</span><a href="../index.html">Home →</a></footer></body></html>

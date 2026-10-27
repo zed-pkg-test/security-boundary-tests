@@ -1,16 +1,12 @@
-# zed-pkg-test/security-boundary-tests
+# Orestra Website
 
-Tenant isolation, replay protection, signature verification, path traversal, SSRF, redaction, and CI supply-chain boundary tests.
+Framework-free responsive project website with architecture and getting-started
+pages. Provides accurate pre-alpha feature status and paths into source repos.
 
-This repository is the `security` deep-test suite for `zed-pkg`. It is intentionally dependency-light and deterministic so failures can be reproduced locally without production credentials or customer data.
-
-## Run
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
-python scripts/verify_repository.py
+Preview locally:
+```sh
+python3 -m http.server 8080
 ```
 
-The initial model is executable rather than a placeholder. Product adapters should be added through focused pull requests while preserving the reference-model tests as an oracle.
-
-Tracking: https://github.com/ORESoftware/ai-agent-coordinator.rs/issues/139
+No custom hostname or GitHub Pages publishing settings are assumed. Review
+accessibility and repository visibility before enabling public hosting.

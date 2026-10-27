@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta name="description" content="Orestra: actor-native distributed orchestration, built in Oreslang. Pre-alpha engineering project.">
+  <meta name="theme-color" content="#0c111d"><title>Orestra — Orchestration in Oreslang</title>
+  <link rel="stylesheet" href="./assets/site.css">
+</head>
+<body>
+  <header class="nav wrap">
+    <a class="brand" href="./index.html" aria-label="Orestra home"><span class="symbol">◎</span> orestra <small>alpha / 0.1</small></a>
+    <nav aria-label="Main"><a href="#why">Why Orestra</a><a href="#architecture">Architecture</a><a href="#status">Roadmap</a><a href="./pages/architecture.html">Docs</a></nav>
+    <a class="outline" href="https://github.com/orestra" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <section class="hero wrap">
+      <div class="hero-copy"><p class="overline"><span class="dot"></span> PRE-ALPHA · AN OPEN ENGINEERING FOUNDATION</p>
+        <h1>Orchestrate<br><em>with explicit state.</em></h1>
+        <p class="lead">A Kubernetes-class orchestration project designed in <strong>Oreslang</strong>. Actor-supervised controllers, declarative state, deterministic scheduling and explicit failure recovery.</p>
+        <div class="buttons"><a class="primary" href="./pages/getting-started.html">Explore the code <span aria-hidden="true">→</span></a><a class="secondary" href="#architecture">See the design</a></div>
+        <p class="disclaimer">Source foundation underway. Not yet a production cluster or Kubernetes replacement.</p>
+      </div>
+      <div class="hero-panel" aria-label="Orestra lifecycle conceptual illustration">
+        <div class="panel-top"><span><i></i> architecture.map</span><span class="dim">v1alpha1</span></div>
+        <div class="graph">
+          <div class="graph-box edge">Declarative API <small>resources + admission</small></div>
+          <div class="branch" aria-hidden="true">↓</div>
+          <div class="graph-box active">Replicated state <small>CAS · watches · leases</small></div>
+          <div class="split" aria-hidden="true">↙ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ↘</div>
+          <div class="graph-row"><div class="graph-box">Controllers <small>supervised actors</small></div><div class="graph-box">Scheduler <small>pure decisions</small></div></div>
+          <div class="branch" aria-hidden="true">↓</div>
+          <div class="graph-box edge">Node agents <small>OCI · CNI · CSI</small></div>
+        </div>
+        <div class="panel-bottom">DESIRED STATE <span>→</span> RECONCILIATION <span>→</span> OBSERVED STATE</div>
+      </div>
+    </section>
+    <section id="why" class="content-section wrap">
+      <p class="overline">BUILT ON DIFFERENT FOUNDATIONS</p><h2>Orchestration is a concurrency problem.</h2>
+      <div class="features">
+        <article><span class="num">01 /</span><h3>Actor-owned control</h3><p>Supervised actors own mutable controller state. Lightweight Tasks handle bounded parallel computations. No actor is required for every container.</p></article>
+        <article><span class="num">02 /</span><h3>Transactions over guesses</h3><p>Scheduling proposals are speculative; authoritative reservations need atomic resource-version checks and fencing epochs.</p></article>
+        <article><span class="num">03 /</span><h3>Correct by construction</h3><p>State machines, explicit resource generations, deterministic conformance models and failure-first testing shape the design.</p></article>
+      </div>
+    </section>
+    <section id="architecture" class="content-section arch">
+      <div class="wrap two-col"><div><p class="overline">ARCHITECTURE</p><h2>Control plane in Oreslang.<br>Standards at the edges.</h2><p class="paragraph">Deploy OCI workloads through established runtime adapters. Integrate CNI and CSI without putting Linux-specific dependencies in the Oreslang freestanding core.</p>
+        <a class="text-link" href="./pages/architecture.html">Read the architecture RFC ↗</a></div>
+        <div class="stack"><div><b>core</b><small>Types · FSM · ownership · atomics</small></div><div><b>alloc</b><small>Arenas · snapshots · LayoutStore</small></div><div><b>stdlib</b><small>Tasks · supervision · net · serialization</small></div><div><b>orestra</b><small>API · state · controllers · scheduler · agents</small></div></div>
+      </div>
+    </section>
+    <section id="status" class="content-section wrap">
+      <p class="overline">PROJECT STATUS</p><h2>Build the real thing. Show the gaps.</h2>
+      <div class="milestones">
+        <div><span class="status built">FOUNDATION</span><h3>Resource contracts and pure Oreslang logic</h3><p>Source modules, schema definitions, local conformance oracles and CI configuration.</p></div>
+        <div><span class="status future">NEXT</span><h3>First local, real container deployment</h3><p>Oreslang API, persistent state, scheduler actor and node-agent OCI integration.</p></div>
+        <div><span class="status future">LATER</span><h3>HA, security and interoperability</h3><p>Replicated state, admission/RBAC, volume/network drivers, chaos and official conformance gates.</p></div>
+      </div>
+    </section>
+    <section class="cta wrap"><p class="overline">FOLLOW THE ENGINEERING</p><h2>An orchestrator built to reason about.</h2><a class="primary" href="https://github.com/orestra" rel="noopener">Explore the repositories ↗</a></section>
+  </main>
+  <footer class="wrap"><span>◎ orestra</span><span>Built for Oreslang. Pre-alpha · no performance or compatibility claims yet.</span><a href="./pages/getting-started.html">Getting started →</a></footer>
+  <script type="module" src="./assets/site.js"></script>
+</body>
+</html>
