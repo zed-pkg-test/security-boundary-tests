@@ -718,3 +718,12 @@ fn duplicate_security_sensitive_headers_fail_closed() {
         400
     );
 }
+
+
+#[test]
+fn oversized_or_nul_bearer_identity_fails_closed() {
+    let h = Harness::new();
+    let oversized = format!("Bearer {}", "x".repeat(5000));
+    assert!(h.auth.authenticate(Some(&oversized)).is_err());
+    assert!(h.auth.authenticate(Some("Bearer bad\0token")).is_err());
+}
