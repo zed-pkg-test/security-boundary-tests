@@ -584,7 +584,7 @@ jobs:
           </Project>
           EOF
           cat > "$root/source/verification/Ores.Net.Generator.Tests/Program.cs" <<'EOF'
-          Console.WriteLine(6 * 7 == 42 ? "DOTNET_GENERATOR_V1_PASS" : "FAIL");
+          System.Console.WriteLine(6 * 7 == 42 ? "DOTNET_GENERATOR_V1_PASS" : "FAIL");
           EOF
           export SYNTH_DOTNET_ROOT="$root"
           python3 - <<'PY'
