@@ -682,7 +682,7 @@ fn dispatch(
             }
             principal(request, authorizer, "put", namespace)?;
             reject_legacy_epoch_header(request)?;
-            let length = header(request, "Content-Length")
+            let length = unique_header(request, "Content-Length")?
                 .unwrap_or_else(|| "0".into())
                 .parse::<usize>()
                 .map_err(|_| ApiError::BadRequest("invalid body size".into()))?;
@@ -697,7 +697,7 @@ fn dispatch(
                 .map_err(|e| ApiError::BadRequest(e.to_string()))?;
             let document: Value =
                 serde_json::from_str(&body).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-            let expected = match header(request, "If-Match") {
+            let expected = match unique_header(request, "If-Match")? {
                 Some(value) => Some(
                     value
                         .parse::<u64>()
@@ -718,7 +718,7 @@ fn dispatch(
             }
             principal(request, authorizer, "delete", namespace)?;
             reject_legacy_epoch_header(request)?;
-            let expected = header(request, "If-Match")
+            let expected = unique_header(request, "If-Match")?
                 .unwrap_or_else(|| "0".into())
                 .parse::<u64>()
                 .map_err(|_| ApiError::BadRequest("invalid If-Match".into()))?;
@@ -736,14 +736,14 @@ fn principal(
     verb: &str,
     namespace: &str,
 ) -> Result<Principal, ApiError> {
-    let auth = header(request, "Authorization");
+    let auth = unique_header(request, "Authorization")?;
     let principal = authorizer.authenticate(auth.as_deref())?;
     authorizer.authorize(&principal, verb, namespace)?;
     Ok(principal)
 }
 
 fn reject_legacy_epoch_header(request: &Request) -> Result<(), ApiError> {
-    if header(request, "X-Leader-Epoch").is_some() {
+    if unique_header(request, "X-Leader-Epoch")?.is_some() {
         Err(ApiError::BadRequest(
             "clients cannot supply X-Leader-Epoch".into(),
         ))
@@ -752,12 +752,18 @@ fn reject_legacy_epoch_header(request: &Request) -> Result<(), ApiError> {
     }
 }
 
-fn header(request: &Request, name: &'static str) -> Option<String> {
-    request
+fn unique_header(request: &Request, name: &'static str) -> Result<Option<String>, ApiError> {
+    let mut matches = request
         .headers()
         .iter()
-        .find(|header| header.field.equiv(name))
-        .map(|header| header.value.as_str().to_string())
+        .filter(|header| header.field.equiv(name));
+    let value = matches
+        .next()
+        .map(|header| header.value.as_str().to_string());
+    if matches.next().is_some() {
+        return Err(ApiError::BadRequest(format!("duplicate {name} header")));
+    }
+    Ok(value)
 }
 
 fn parse_query(query: &str) -> Result<HashMap<String, String>, ApiError> {
