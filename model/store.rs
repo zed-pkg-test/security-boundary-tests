@@ -178,7 +178,7 @@ impl MemoryStore {
         lease: &Lease,
         now: i64,
     ) -> Result<u64, StoreError> {
-        if key.is_empty() || key.len() > MAX_KEY_BYTES || now < 0 {
+        if key.is_empty() || key.len() > MAX_KEY_BYTES || key.contains('\0') || now < 0 {
             return Err(StoreError::Invalid("invalid object key or tick"));
         }
         let encoded = serde_json::to_vec(&object)
@@ -227,8 +227,8 @@ impl MemoryStore {
         lease: &Lease,
         now: i64,
     ) -> Result<u64, StoreError> {
-        if now < 0 {
-            return Err(StoreError::Invalid("invalid tick"));
+        if key.is_empty() || key.len() > MAX_KEY_BYTES || key.contains('\0') || now < 0 {
+            return Err(StoreError::Invalid("invalid object key or tick"));
         }
         let mut state = self.state.lock().unwrap();
         Self::check_leader(&state, domain, lease, now)?;
