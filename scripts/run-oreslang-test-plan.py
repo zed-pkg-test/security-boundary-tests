@@ -18,7 +18,7 @@ MAX_ARG_LENGTH = 4096
 MAX_TIMEOUT = 1800
 MAX_LOG_CHARS = 64 * 1024
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
-SAFE_ENV_KEYS = ("PATH", "JAVA_HOME", "GRAALVM_HOME", "LANG", "LC_ALL", "HOME")
+SAFE_ENV_KEYS = ("PATH", "JAVA_HOME", "GRAALVM_HOME", "DOTNET_ROOT", "LANG", "LC_ALL", "HOME")
 SAFE_EXECUTABLE = re.compile(r"^(?:python3|mvn|cmake|ctest|cargo|node|dotnet|g\+\+|clang\+\+|/tmp/ores-[A-Za-z0-9_.-]+)$")
 
 
