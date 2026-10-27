@@ -277,8 +277,7 @@ pub fn capacity_plan(nodes: &Value, cpu: i64, memory: i64) -> Result<Vec<String>
     let mut names = HashSet::new();
     for node in nodes {
         let node = node.as_object().ok_or_else(|| "node must be an object".to_string())?;
-        let name = node.get("name").and_then(Value::as_str).filter(|x| !x.is_empty())
-            .ok_or_else(|| "empty or duplicate node name".to_string())?;
+        let name = bounded_text(node.get("name"), "node name", MAX_IDENTITY_BYTES)?;
         if !names.insert(name.to_string()) {
             return Err("empty or duplicate node name".into());
         }
