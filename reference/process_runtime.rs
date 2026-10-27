@@ -17,6 +17,14 @@ use std::{
 use std::os::unix::{fs::PermissionsExt, process::CommandExt};
 
 const MAX_IDENTITY_BYTES: usize = 256;
+const HANDLE_HEX_BYTES: usize = 32;
+
+fn valid_handle(handle: &str) -> bool {
+    handle.len() == HANDLE_HEX_BYTES
+        && handle
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+}
 
 #[cfg(unix)]
 fn group_alive(pgid: u32) -> bool {
@@ -256,6 +264,9 @@ impl ProcessRuntime {
     }
 
     pub fn status(&mut self, handle: &str) -> Result<&'static str, RuntimeError> {
+        if !valid_handle(handle) {
+            return Err(RuntimeError::Invalid("invalid sandbox handle".into()));
+        }
         let sandbox = self
             .sandboxes
             .get_mut(handle)
@@ -269,6 +280,9 @@ impl ProcessRuntime {
 
     pub fn stop(&mut self, handle: &str, agent_epoch: u64) -> Result<&'static str, RuntimeError> {
         self.check_epoch(agent_epoch)?;
+        if !valid_handle(handle) {
+            return Err(RuntimeError::Invalid("invalid sandbox handle".into()));
+        }
         let sandbox = self
             .sandboxes
             .get_mut(handle)
@@ -516,5 +530,38 @@ mod tests {
         }
         rt.close();
         fs::remove_dir_all(&root).unwrap();
+    }
+}
+
+
+#[cfg(test)]
+mod handle_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn external_sandbox_handles_are_strictly_bounded_hex() {
+        let sleep = Path::new("/usr/bin/sleep");
+        if !sleep.is_file() {
+            return;
+        }
+        let mut rt = ProcessRuntime::new(sleep, 7).unwrap();
+        let epoch = rt.agent_epoch();
+        let invalid = vec![
+            String::new(),
+            "a".into(),
+            "A".repeat(HANDLE_HEX_BYTES),
+            "g".repeat(HANDLE_HEX_BYTES),
+            "x".repeat(HANDLE_HEX_BYTES + 1),
+        ];
+        for invalid in invalid {
+            assert!(matches!(
+                rt.status(&invalid),
+                Err(RuntimeError::Invalid(_))
+            ));
+            assert!(matches!(
+                rt.stop(&invalid, epoch),
+                Err(RuntimeError::Invalid(_))
+            ));
+        }
     }
 }
