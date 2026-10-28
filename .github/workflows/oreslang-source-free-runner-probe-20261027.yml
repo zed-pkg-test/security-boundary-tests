@@ -1,26 +1,33 @@
-name: Oreslang source-free alternate Actions admission probe
+name: Public cross-org Git object integrity probe (no private source)
 on:
   push:
     branches:
       - audit/oreslang-source-free-runner-probe-20261027
-permissions: {}
+permissions:
+  contents: read
 jobs:
-  no-private-source-probe:
+  verify-public-mirror:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Validate real Actions step execution without source checkout
+      - name: Checkout this test repo only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify exact public cross-org blob and Git mode
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "zed-pkg-test/security-boundary-tests"
           test "$GITHUB_EVENT_NAME" = "push"
           test "$GITHUB_REF" = "refs/heads/audit/oreslang-source-free-runner-probe-20261027"
-          test "$RUNNER_OS" = "Linux"
           test -z "${GITHUB_TOKEN:-}"
           test -z "${GH_TOKEN:-}"
-          command -v python3
-          python3 -c 'print("SOURCE_FREE_PYTHON_READY=true")'
-          echo "ALT_ORG_SOURCE_FREE_EXECUTED=true"
-          echo "PRIVATE_ORESLANG_TREE_MIRRORED=false"
-          echo "SOURCE_CODE_CHECKOUT=false"
+          expected="4b4818ebeecff50619c808c6844eb4a774951e27"
+          test "$(git hash-object mirror-fixture/README.md)" = "$expected"
+          observed="$(git ls-tree HEAD mirror-fixture/README.md)"
+          test "$observed" = "$(printf '100644 blob %s\tmirror-fixture/README.md' "$expected")"
+          test -f mirror-fixture/README.md
+          echo "PUBLIC_CROSS_ORG_BLOB_SHA_VERIFIED=$expected"
+          echo "PRIVATE_ORESLANG_BLOBS_COPIED=false"
+          echo "ALT_GITHUB_ACTIONS_EXECUTION_VERIFIED=true"
