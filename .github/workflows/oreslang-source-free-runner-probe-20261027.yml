@@ -1,0 +1,26 @@
+name: Oreslang source-free alternate Actions admission probe
+on:
+  push:
+    branches:
+      - audit/oreslang-source-free-runner-probe-20261027
+permissions: {}
+jobs:
+  no-private-source-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validate real Actions step execution without source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "zed-pkg-test/security-boundary-tests"
+          test "$GITHUB_EVENT_NAME" = "push"
+          test "$GITHUB_REF" = "refs/heads/audit/oreslang-source-free-runner-probe-20261027"
+          test "$RUNNER_OS" = "Linux"
+          test -z "${GITHUB_TOKEN:-}"
+          test -z "${GH_TOKEN:-}"
+          command -v python3
+          python3 -c 'print("SOURCE_FREE_PYTHON_READY=true")'
+          echo "ALT_ORG_SOURCE_FREE_EXECUTED=true"
+          echo "PRIVATE_ORESLANG_TREE_MIRRORED=false"
+          echo "SOURCE_CODE_CHECKOUT=false"
