@@ -1,4 +1,4 @@
-name: Public cross-org Git object integrity probe (no private source)
+name: Synthetic public full Git-tree parity verification
 on:
   push:
     branches:
@@ -6,28 +6,29 @@ on:
 permissions:
   contents: read
 jobs:
-  verify-public-mirror:
+  public-tree-sha:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout this test repo only
+      - name: Checkout only synthetic public test-repo branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Verify exact public cross-org blob and Git mode
+      - name: Verify public synthetic tree and every Git object
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "zed-pkg-test/security-boundary-tests"
           test "$GITHUB_EVENT_NAME" = "push"
           test "$GITHUB_REF" = "refs/heads/audit/oreslang-source-free-runner-probe-20261027"
-          test -z "${GITHUB_TOKEN:-}"
-          test -z "${GH_TOKEN:-}"
-          expected="4b4818ebeecff50619c808c6844eb4a774951e27"
-          test "$(git hash-object mirror-fixture/README.md)" = "$expected"
-          observed="$(git ls-tree HEAD mirror-fixture/README.md)"
-          test "$observed" = "$(printf '100644 blob %s\tmirror-fixture/README.md' "$expected")"
-          test -f mirror-fixture/README.md
-          echo "PUBLIC_CROSS_ORG_BLOB_SHA_VERIFIED=$expected"
-          echo "PRIVATE_ORESLANG_BLOBS_COPIED=false"
-          echo "ALT_GITHUB_ACTIONS_EXECUTION_VERIFIED=true"
+          expected_tree="$(git log -1 --pretty=%B | sed -n 's/^SOURCE_PUBLIC_TREE_SHA=//p')"
+          test -n "$expected_tree"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree"
+          test "$(git hash-object public-fixture/README.txt)" = "556d20e2c9af8b4feb018796bd4ab7955149b6b5"
+          test "$(git hash-object public-fixture/contract.json)" = "9a456982f20b2cb1b578426bfeb48cd44078b8f9"
+          test "$(git ls-tree HEAD public-fixture/README.txt)" = "$(printf '100644 blob %s\tpublic-fixture/README.txt' '556d20e2c9af8b4feb018796bd4ab7955149b6b5')"
+          test "$(git ls-tree HEAD public-fixture/contract.json)" = "$(printf '100644 blob %s\tpublic-fixture/contract.json' '9a456982f20b2cb1b578426bfeb48cd44078b8f9')"
+          test "$(git ls-tree -r --name-only HEAD | LC_ALL=C sort)" = "$(printf '.github/workflows/oreslang-source-free-runner-probe-20261027.yml\npublic-fixture/README.txt\npublic-fixture/contract.json')"
+          echo "SYNTHETIC_SOURCE_TREE_SHA=$expected_tree"
+          echo "PUBLIC_FULL_TREE_PARITY_VERIFIED=true"
+          echo "PRIVATE_ORESLANG_TREE_COPIED=false"
