@@ -1,0 +1,27 @@
+# No Oreslang source, compiler checkout, secrets or network usage.
+name: Source-free queue carrier runner admission
+on:
+  push:
+    branches:
+      - ci/queue-source-free-admission-20261031
+    paths:
+      - .github/workflows/queue-source-free-carrier.yml
+permissions: {}
+jobs:
+  admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Prove GitHub assigned a runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'SOURCE_FREE_CARRIER_ADMITTED=yes\n'
+          printf 'RUN_ID=%s\n' "$GITHUB_RUN_ID"
+          printf 'RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+          test "$RUNNER_OS" = Linux
+      - name: Prove second step execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo SOURCE_FREE_CARRIER_SECOND_STEP=yes
