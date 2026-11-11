@@ -1,0 +1,18 @@
+name: Atto actor 2891 external CI admission canary
+on:
+  push:
+    branches: [ci/atto-actor-2891-admission-20261111]
+    paths: ['.github/workflows/atto-actor-2891-admission.yml']
+permissions:
+  contents: read
+jobs:
+  admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Nonzero runner admission proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "${{ github.sha }}"
+          echo "RECEIPT actor-2891 admission EXECUTED $GITHUB_SHA"
