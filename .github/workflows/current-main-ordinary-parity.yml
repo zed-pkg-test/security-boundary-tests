@@ -1,0 +1,122 @@
+name: Frozen current-main ordinary initialization and strings
+on:
+  pull_request:
+    paths: ['.github/workflows/current-main-ordinary-parity.yml']
+permissions:
+  contents: read
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: java
+            repo: atto-source.java
+            head: 226a3c7d5230e449d85827be164e05d398962e9e
+          - target: llvm
+            repo: atto-source.llvm
+            head: b22e89fa7b007bf5fb3d31ecbe3520fa2a9117f7
+          - target: rs
+            repo: atto-source.rs
+            head: a038b8d738447ba7251aae19ed8efd0fba8eced1
+          - target: wasm
+            repo: atto-source.rs
+            head: a038b8d738447ba7251aae19ed8efd0fba8eced1
+          - target: js
+            repo: atto-source.js
+            head: e9009f02c2a984c76d0dbe953b6c949d63bf2538
+          - target: net
+            repo: atto-source.net
+            head: 32ab2c26625a8b409f826af4e012943c0d6423d0
+          - target: forge
+            repo: atto-source.forge
+            head: ea7830a1732ab271dd4393aacd88e4a1659bd3d6
+          - target: cranelift
+            repo: atto-source.cranelift
+            head: d680421069976da4df7e749df7686d36b32166d9
+    env:
+      TARGET: ${{ matrix.target }}
+      REPO: ${{ matrix.repo }}
+      HEAD_SHA: ${{ matrix.head }}
+    steps:
+      - name: Authenticate exact source and corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_exact() {
+            git init -q "$4"
+            git -C "$4" fetch --no-tags --depth=1 "https://github.com/$1.git" "$2"
+            git -C "$4" checkout --detach FETCH_HEAD
+            test "$(git -C "$4" rev-parse HEAD)" = "$2"
+            test "$(git -C "$4" rev-parse HEAD^{tree})" = "$3"
+            test "$(git -C "$4" write-tree)" = "$3"
+            test -z "$(git -C "$4" status --porcelain --untracked-files=all)"
+            printf 'EXACT_SOURCE %s %s %s\n' "$1" "$2" "$3"
+          }
+          fetch_main() {
+            git init -q "$3"
+            git -C "$3" fetch --no-tags --depth=1 "https://github.com/$1.git" "$2"
+            git -C "$3" checkout --detach FETCH_HEAD
+            test "$(git -C "$3" rev-parse HEAD)" = "$2"
+            tree="$(git -C "$3" rev-parse HEAD^{tree})"
+            test "$(git -C "$3" write-tree)" = "$tree"
+            test -z "$(git -C "$3" status --porcelain --untracked-files=all)"
+            printf 'EXACT_MAIN_SNAPSHOT %s %s %s\n' "$1" "$2" "$tree"
+          }
+          fetch_main "atto-lang/$REPO" "$HEAD_SHA" compiler
+          fetch_exact atto-lang/atto-platform-conformance 82d4163592175e925dbe246d0e1301ce9758ae1f 73c1ca077ae45e79f26098ac387663ce9ead7081 corpus
+          if [[ "$TARGET" == wasm ]]; then
+            fetch_main atto-lang/atto-source.wasm c60c59c6702ad28ebeb03a7e95db261cbc5f7e67 bridge
+          fi
+      - name: Build compiler and execute independent corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            rs)
+              rustup toolchain install 1.85.1 --profile minimal
+              cargo +1.85.1 build --manifest-path compiler/Cargo.toml --locked --release --bin attoc
+              args=(rs compiler/target/release/attoc);;
+            wasm)
+              rustup toolchain install 1.85.1 --profile minimal --target wasm32-unknown-unknown
+              cargo +1.85.1 build --locked --release --lib --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+              artifact=compiler/target/wasm32-unknown-unknown/release/atto_compiler.wasm
+              digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+              args=(wasm "$artifact" bridge "$digest");;
+            js) args=(js compiler);;
+            java)
+              export JAVA_HOME="${JAVA_HOME_21_X64:?runner JDK21 missing}"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              java -version
+              args=(java compiler);;
+            llvm)
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq clang-19 llvm-19-dev lld-19 libssl-dev libclang-rt-19-dev
+              cmake -S compiler -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLLVM_DIR=/usr/lib/llvm-19/lib/cmake/llvm -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+              cmake --build build --target oreslang-llvmc -j2
+              args=(llvm build/oreslang-llvmc clang-19 compiler/src/main/cpp/oreslang/runtime/NativeStringRegion.c);;
+            net)
+              dotnet build compiler/compiler/Ores.Net.Compiler/Ores.Net.Compiler.csproj -c Release
+              driver="$(find "$PWD/compiler/compiler/Ores.Net.Compiler/bin/Release" -name oresnet.dll -type f | head -n1)"
+              test -n "$driver"
+              args=(net "$driver" compiler);;
+            forge)
+              cmake -S compiler -B build -DCMAKE_BUILD_TYPE=Release
+              cmake --build build --target forge_scalar -j2
+              args=(forge build/forge_scalar compiler/include);;
+            cranelift)
+              cargo build --locked --manifest-path compiler/Cargo.toml
+              args=(cranelift compiler/target/debug/orescranelift);;
+          esac
+          failures=0
+          for suite in original string-view-candidate; do
+            if ATTO_INIT_SUITE="$suite" node corpus/bin/verify-ordinary-explicit-initialization.mjs "${args[@]}"; then
+              echo CENSUS_SUITE_PASS "$TARGET" "$suite"
+            else
+              failures=$((failures+1))
+              echo CENSUS_SUITE_FAIL "$TARGET" "$suite"
+            fi
+          done
+          test "$failures" = 0
