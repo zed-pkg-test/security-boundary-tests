@@ -76,9 +76,13 @@ jobs:
           git init source
           git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git "$EXPECTED_HEAD"
           git -C source checkout --detach FETCH_HEAD
-          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test "$(git -C source rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
-          test "$(git -C source write-tree)" = "$EXPECTED_TREE"
+          actual_head="$(git -C source rev-parse HEAD)"
+          actual_tree="$(git -C source rev-parse 'HEAD^{tree}')"
+          index_tree="$(git -C source write-tree)"
+          printf 'OBSERVED_HEAD_TREE|%s|expected=%s,%s|actual=%s,%s,%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$actual_head" "$actual_tree" "$index_tree"
+          test "$actual_head" = "$EXPECTED_HEAD"
+          test "$actual_tree" = "$EXPECTED_TREE"
+          test "$index_tree" = "$EXPECTED_TREE"
           git -C source diff --exit-code
           git -C source fsck --full
           test -z "$(git -C source status --porcelain)"
