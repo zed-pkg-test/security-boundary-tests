@@ -1,0 +1,30 @@
+name: Rust select - repaired runtime prelude exact guest
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-rust-select-prelude-retry-20261126.yml']
+permissions: {}
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify exact source and execute real compiled Wasm
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.rs.git 0e79bf62b1f36b1a4b95cea581082b201a8c77be
+          git -C source checkout --detach FETCH_HEAD
+          cd source
+          test "$(git rev-parse HEAD)" = 0e79bf62b1f36b1a4b95cea581082b201a8c77be
+          test "$(git rev-parse 'HEAD^{tree}')" = 491c604774402585a6076a46b466651af2b5d640
+          test "$(git write-tree)" = 491c604774402585a6076a46b466651af2b5d640
+          git fsck --full
+          cargo build --locked --bin attoc
+          node tests/node-v2-select-plans-guest.mjs | tee "$RUNNER_TEMP/guest.log"
+          test "$(grep -c '^REAL_WASM_SELECT_PLAN_PASS ' "$RUNNER_TEMP/guest.log")" -eq 8
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo RUST_SELECT_PRELUDE_EXACT_TREE_PASS
