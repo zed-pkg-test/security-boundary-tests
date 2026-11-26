@@ -1,0 +1,266 @@
+name: Recover exact outstanding bound cache and HDL Wasm tests
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/atto-bound-cache-recovery-20261126.yml']
+permissions: {}
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify exact public compiler tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.rs.git 685c26ec4448af871b6ff7821359ae51ba9050f5
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 685c26ec4448af871b6ff7821359ae51ba9050f5
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object src/registry_namespace.rs)" = 04d7c30629bbc3069b86cf83bd55712e04bed551
+          test "$(git -C source hash-object tests/registry_namespace.rs)" = 0852077efdbbab8aa744b0be88a9a00c4efd0b94
+          test "$(git -C source hash-object tests/experimental_registry_cache.rs)" = ebf3776da46ff4aa4c507e7856e8229e9ed7a2cc
+          test "$(git -C source hash-object src/compiler_cache_registry.rs)" = 27b3407b39d309ccfa5326d1929fe23d356d1c64
+          test "$(git -C source hash-object src/experimental_incremental.rs)" = 672b473520303c37bbbc0a044cd335dd8be97ed7
+          echo "EXACT_RUST_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - name: Execute actual registry linker and persistent cache tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          rustc --version
+          node --version
+          cargo test --features experimental-incremental-cache --test registry_namespace --test experimental_registry_cache -- --nocapture | tee /tmp/registry-tests.log
+          grep -F 'REGISTRY_EXPLICIT_MEMBERSHIP|' /tmp/registry-tests.log
+          grep -F 'REGISTRY_LOCAL_SIBLING_CACHE|' /tmp/registry-tests.log
+          grep -F 'REGISTRY_BOUND_INPUT_CACHE|' /tmp/registry-tests.log
+          cargo test --features experimental-incremental-cache --lib registry_check_memo -- --nocapture
+  bound-cil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify exact public compiler head and root tree
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.net.git 2101c592dffb0b8ffe429a3354d0d594d431d636
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 2101c592dffb0b8ffe429a3354d0d594d431d636
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object compiler/Ores.Net.Compiler.Core/FrozenImportSnapshot.cs)" = f658d43840c208ce224af108d91d274ca6ef8910
+          test "$(git -C source hash-object compiler/Ores.Net.Compiler.Core/PersistentFrozenCilSession.cs)" = 2a956cc56e62b6b9fda1bd9a9d284d453d832caa
+          test "$(git -C source hash-object verification/Ores.Net.Tests/FrozenDependencyGraphSelfTest.cs)" = 1c7c1fcec7021459f4b0e608b647a3451e3d6509
+          echo "EXACT_NET_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
+      - name: Compile production compiler and execute cache key tests
+        working-directory: source
+        run: |
+          set -eu
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          dotnet new console --framework net10.0 --no-restore --output "$work"
+          dotnet add "$work" reference "$PWD/compiler/Ores.Net.Compiler.Core/Ores.Net.Compiler.Core.csproj"
+          cp verification/Ores.Net.Tests/CompilerCacheKeySelfTest.cs "$work/"
+          cmp verification/Ores.Net.Tests/CompilerCacheKeySelfTest.cs "$work/CompilerCacheKeySelfTest.cs"
+          cp verification/Ores.Net.Tests/CompilerArtifactReceiptSelfTest.cs "$work/"
+          cmp verification/Ores.Net.Tests/CompilerArtifactReceiptSelfTest.cs "$work/CompilerArtifactReceiptSelfTest.cs"
+          cp verification/Ores.Net.Tests/CompilerCacheLedgerSelfTest.cs "$work/"
+          cmp verification/Ores.Net.Tests/CompilerCacheLedgerSelfTest.cs "$work/CompilerCacheLedgerSelfTest.cs"
+          cp verification/Ores.Net.Tests/FrozenDependencyGraphSelfTest.cs "$work/"
+          cmp verification/Ores.Net.Tests/FrozenDependencyGraphSelfTest.cs "$work/FrozenDependencyGraphSelfTest.cs"
+          printf '%s\n' 'CompilerCacheKeySelfTest.Run();' 'CompilerArtifactReceiptSelfTest.Run();' 'CompilerCacheLedgerSelfTest.Run();' 'if(args.Length==1) FrozenDependencyGraphSelfTest.EmitCilCacheGuests(args[0]); else if(System.OperatingSystem.IsLinux()) FrozenDependencyGraphSelfTest.EmitPersistentCilGuests(args[0],args[1]); else throw new System.PlatformNotSupportedException();' > "$work/Program.cs"
+          dotnet run --project "$work" --configuration Release -- "$work/artifacts"
+          for lane in cold warm edit bound-cold bound-warm bound-edit; do
+            dotnet run --project "$work" --configuration Release --no-build -- "$work/persistent" "$lane"
+          done
+          for lane in cold warm edit bound-cold bound-warm bound-edit; do
+            host="$work/host-$lane"
+            mkdir -p "$host"
+            cp "$work/persistent/$lane.dll" "$host/OresGenerated.dll"
+            printf '%s\n' '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><PublishAot>true</PublishAot><SelfContained>true</SelfContained><InvariantGlobalization>true</InvariantGlobalization></PropertyGroup><ItemGroup><Reference Include="OresGenerated"><HintPath>OresGenerated.dll</HintPath><Private>true</Private></Reference></ItemGroup></Project>' > "$host/Host.csproj"
+            printf '%s\n' 'return checked((int)Oreslang.Generated.OresProgram.Run());' > "$host/Program.cs"
+            dotnet publish "$host/Host.csproj" -c Release -r linux-x64 -o "$host/out"
+            rc=0; "$host/out/Host" || rc=$?
+            if [ "$lane" = edit ] || [ "$lane" = bound-edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+            echo "INCREMENTAL_NET_NATIVEAOT|$lane|$rc"
+          done
+  cranelift-v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Verify exact public compiler and fixture trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          fetch() {
+            local dir="$1" repo="$2" head="$3" file="$4" blob="$5"
+            git init "$dir"
+            git -C "$dir" -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 "https://github.com/$repo.git" "$head"
+            git -C "$dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$head"
+            local tree
+            tree="$(git -C "$dir" rev-parse "$head^{tree}")"
+            test "$(git -C "$dir" write-tree)" = "$tree"
+            git -C "$dir" diff --exit-code
+            git -C "$dir" fsck --full
+            test "$(git -C "$dir" hash-object "$file")" = "$blob"
+            printf 'EXACT_PUBLIC_HEAD|%s|%s|%s|%s\n' "$repo" "$head" "$tree" "$blob"
+          }
+          fetch source atto-lang/atto-source.cranelift d7faa9d7e8a7b191421b44ed79ccc524379eca87 src/namespace_provider.rs eee75e03da8702458c0179bdce7863eb86cdc9a1
+          test "$(git -C source hash-object src/main.rs)" = 333e5f242a9cf009a5ee8c91a941c954ff2ae126
+          test "$(git -C source hash-object src/compiler_artifact_store/session.rs)" = 2df487599f0145850b443b2f086af1aec864ab53
+          fetch fixture atto-lang/atto-compilers-parity-testing 959c009fa270f35220188b4a51248ec2ef83967c fixtures/package-namespace-v3/adapters/cranelift/native-session.test.mjs f6153b2abb3707fa18065e24da12f73d7f2c22ff
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/cranelift/native-session.mjs)" = 8dd774df194e937f11a43887517478ad25a52347
+      - name: Build actual native compiler and test provider admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          rustc --version
+          cargo build --locked --bin orescranelift
+          cargo test --locked --bin orescranelift namespace_provider::tests::exact_admission_and_native_object -- --nocapture
+          printf 'namespace billing;\npub fnc function0(): int { return 0; }\n' | target/debug/orescranelift emit-namespace-provider-object billing function0 > "$RUNNER_TEMP/provider.o"
+          readelf -h "$RUNNER_TEMP/provider.o" | grep -E 'Type:.*REL'
+          for lane in private foreign arity dotted; do
+            case "$lane" in
+              private) src='namespace billing;\nfnc function0(): int { return 0; }\n'; ns=billing ;;
+              foreign) src='namespace identity;\npub fnc function0(): int { return 0; }\n'; ns=billing ;;
+              arity) src='namespace billing;\npub fnc function0(int x): int { return x; }\n'; ns=billing ;;
+              dotted) src='namespace billing.foo;\npub fnc function0(): int { return 0; }\n'; ns=billing.foo ;;
+            esac
+            if printf '%b' "$src" | target/debug/orescranelift emit-namespace-provider-object "$ns" function0 > "$RUNNER_TEMP/rejected.o" 2> "$RUNNER_TEMP/denial"; then exit 1; fi
+            test ! -s "$RUNNER_TEMP/rejected.o"
+            if [ "$lane" = arity ]; then grep -F 'E_NAMESPACE_ARITY:' "$RUNNER_TEMP/denial"; else grep -F 'E_NAMESPACE_PROFILE:' "$RUNNER_TEMP/denial"; fi
+          done
+          echo CRANELIFT_DIRECT_PROVIDER_NEGATIVES=4_VERIFIED
+      - name: Execute shared native guest and mutation controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ATTO_CRANELIFT_DRIVER="$PWD/source/target/debug/orescranelift"
+          export ATTO_V3_FIXTURE="$PWD/fixture/fixtures/package-namespace-v3"
+          node --test --test-reporter=tap "$ATTO_V3_FIXTURE/adapters/cranelift/native-session.test.mjs" | tee /tmp/atto-clif-v3.tap
+          grep -F 'V3_CRANELIFT_NATIVE|' /tmp/atto-clif-v3.tap
+          grep -F 'V3_CRANELIFT_NEGATIVES|' /tmp/atto-clif-v3.tap
+          grep -F 'V3_CRANELIFT_PARAMETERIZED|' /tmp/atto-clif-v3.tap
+          grep -E '^# tests 3$' /tmp/atto-clif-v3.tap
+          grep -E '^# pass 3$' /tmp/atto-clif-v3.tap
+          grep -E '^# skipped 0$' /tmp/atto-clif-v3.tap
+      - name: Execute existing native and persistent cache regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --locked --bin orescranelift incremental_object_tests::exact_native_object_reuse -- --nocapture
+          cargo test --locked --bin orescranelift sha256::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_cache_key::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_artifact_receipt::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_artifact_store::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_cache_key_policy::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_cache_ledger::tests:: -- --nocapture
+          cargo test --locked --bin orescranelift compiler_artifact_store::session::provider_tests:: -- --nocapture | tee /tmp/cranelift-bound.log
+          grep -F 'CRANELIFT_BOUND_PROVIDER|' /tmp/cranelift-bound.log
+          grep -F 'CRANELIFT_BOUND_PROVIDER_CHILD|' /tmp/cranelift-bound.log
+          echo CRANELIFT_EXISTING_REGRESSIONS=EXECUTED
+  hdl-v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify exact public compiler and fixture trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          fetch() {
+            local dir="$1" repo="$2" head="$3" file="$4" blob="$5"
+            git init "$dir"
+            git -C "$dir" -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 "https://github.com/$repo.git" "$head"
+            git -C "$dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$head"
+            local tree
+            tree="$(git -C "$dir" rev-parse "$head^{tree}")"
+            test "$(git -C "$dir" write-tree)" = "$tree"
+            git -C "$dir" diff --exit-code
+            git -C "$dir" fsck --full
+            test "$(git -C "$dir" hash-object "$file")" = "$blob"
+            printf 'EXACT_PUBLIC_HEAD|%s|%s|%s|%s\n' "$repo" "$head" "$tree" "$blob"
+          }
+          fetch source atto-lang/atto-source.hdl 0d6dc2e81242ac94b535a481c48afa5d25f18182 src/compiler.mjs 0e58159cb3da25f089b1f4c0d5b307d0858494c7
+          fetch fixture atto-lang/atto-compilers-parity-testing 7feb3876de14933d12f522d8412af2fb46fe3528 fixtures/package-namespace-v3/adapters/hdl/rtl-session.test.mjs b738cb90764e759f40eb556a6342c62ec5522ddc
+          test "$(git -C fixture rev-parse HEAD^{tree})" = dce2ca1568c1cf976192b343bf76b7c086e2a3be
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/rtl-session.mjs)" = 5e4b71d3147852f3bad586a90cb2ea2a80a5f5ef
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/checked-rtl-session.mjs)" = 95381098b74cf5511f70f76ea10258699c4b5b77
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/checked-rtl-session.test.mjs)" = 07834a2cbfd1cca364bc4aecda3527589ae27f05
+      - name: Verify exact HDL module syntax and reference checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          node --check src/compiler.mjs
+          node --test --test-reporter=tap tests/checked-namespace-provider.test.mjs | tee /tmp/hdl-reference.tap
+          grep -E '^# pass 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y iverilog
+          node --version
+      - name: Execute actual compiler RTL and boundary controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ATTO_HDL_COMPILER="$PWD/source/src/compiler.mjs"
+          export ATTO_V3_FIXTURE="$PWD/fixture/fixtures/package-namespace-v3"
+          node --test --test-reporter=tap "$ATTO_V3_FIXTURE/adapters/hdl/rtl-session.test.mjs" | tee /tmp/atto-hdl-v3.tap
+          grep -F 'V3_HDL_RTL|' /tmp/atto-hdl-v3.tap
+          grep -F 'V3_HDL_NEGATIVES|' /tmp/atto-hdl-v3.tap
+          grep -F 'HDL_CONSTANT_BOUNDARY|' /tmp/atto-hdl-v3.tap
+          grep -E '^# tests 3$' /tmp/atto-hdl-v3.tap
+          grep -E '^# pass 3$' /tmp/atto-hdl-v3.tap
+          grep -E '^# skipped 0$' /tmp/atto-hdl-v3.tap
+      - name: Execute checked signed RTL parameterized guest and fault controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ATTO_HDL_COMPILER="$PWD/source/src/compiler.mjs"
+          export ATTO_V3_FIXTURE="$PWD/fixture/fixtures/package-namespace-v3"
+          node --test --test-reporter=tap "$ATTO_V3_FIXTURE/adapters/hdl/checked-rtl-session.test.mjs" | tee /tmp/atto-hdl-checked.tap
+          grep -F 'V3_HDL_PARAMETERIZED|' /tmp/atto-hdl-checked.tap
+          grep -F 'HDL_CHECKED_BOUNDARY|' /tmp/atto-hdl-checked.tap
+          grep -E '^# tests 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
+ /tmp/atto-hdl-checked.tap
+          grep -E '^# pass 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
+ /tmp/atto-hdl-checked.tap
+          grep -E '^# skipped 0
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
+ /tmp/atto-hdl-checked.tap
+      - name: Existing compiler and persistent cache regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
