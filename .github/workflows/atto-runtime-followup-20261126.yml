@@ -1,0 +1,138 @@
+name: Runtime parity - follow-up fixes and NativeAOT lifetime probe
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-followup-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: net-external
+            backend: net
+            head: '0af3e018bb084b169a4cf9100d8304f49e67b24f'
+            tree: '39f91488618a0ce8b43a34c69e39ca794c199ce4'
+          - scope: java-call
+            backend: java
+            head: '11b5baecf8ba031c8ed878d40097e7d881a3a4db'
+            tree: '4f4ddf5104a949863a500d0a21f3663f47bc11af'
+          - scope: java-keys
+            backend: java
+            head: 'f8eea539bc939447679b77c5eb71c364bc4b7d4a'
+            tree: '458704afa6b0ee3542507072aa41587a876c894e'
+          - scope: rs-select
+            backend: rs
+            head: 'ed956eb08a5ffcdc58e407757cc2b4559d3f1caa'
+            tree: 'd9fb1deb04ff16eada5e896156cb2b633c58b520'
+          - scope: llvm-select
+            backend: llvm
+            head: '4f1d98893976079227554fda4ad78b499b2ac73b'
+            tree: '13e156af5078cf78da3d743255373ac47ac870c9'
+          - scope: cranelift-select
+            backend: cranelift
+            head: 'e10a0df4106a336dc2a4841ee89f73743a901515'
+            tree: '0f29bc67986553757694b1e2d11f343edcaff47a'
+          - scope: hdl-roles
+            backend: hdl
+            head: 'c49b26d692163879cb0078e05de38ddec7867554'
+            tree: '25797fc697ca1baa2e736372ed5b14d96a72544d'
+          - scope: wasm-current
+            backend: wasm
+            head: 'b385d85b9b57a8774e9daeef02764705b6a1b8a4'
+            tree: '4d674623781ef2b45f0805f045f1aae6e341748d'
+          - scope: forge-current
+            backend: forge
+            head: '93e92742468a325e4e8dcdf0a5a5b4984f4e7ff6'
+            tree: '37dddfd5b07c46ba3ef769bfc6d54dc9fdb1dc38'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate exact public source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Run compiler and runtime evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          if [[ "$SCOPE" == llvm-select || "$SCOPE" == cranelift-select ]]; then
+            git init "$RUNNER_TEMP/conformance"
+            git -C "$RUNNER_TEMP/conformance" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-platform-conformance.git 61fbeac64108739e5b6c1ee3ad15eae4122b2775
+            git -C "$RUNNER_TEMP/conformance" checkout --detach FETCH_HEAD
+            test "$(git -C "$RUNNER_TEMP/conformance" rev-parse 'HEAD^{tree}')" = 765618b5919f4086fef886f2f742a5d15413b286
+            corpus="$RUNNER_TEMP/conformance/fixtures/select-source-v2"
+            test "$(git hash-object --no-filters "$corpus/manifest.json")" = 944135b41af31963b6337ae099c76ed5e7753e3d
+            echo CORPUS_PIN_VERIFIED
+          fi
+          case "$SCOPE" in
+            net-external)
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release | tee "$RUNNER_TEMP/net.log"
+              grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/net.log"
+              dotnet publish verification/Ores.Net.ActorExternalCompletionProbe/Ores.Net.ActorExternalCompletionProbe.csproj -c Release -r linux-x64 -o "$RUNNER_TEMP/native" -warnaserror
+              file "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | grep ELF
+              "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | tee "$RUNNER_TEMP/native.log"
+              grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/native.log"
+              ;;
+            java-call|java-keys)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              if [[ "$SCOPE" == java-call ]]; then tests=ActorSourceTaskFrameTest,GuestScalarActorInvocationLanguageTest; else tests=DynamicSelectPlanGenerationTest; fi
+              mvn -B -ntp -Dtest="$tests" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              ;;
+            rs-select)
+              cargo build --locked --bin attoc
+              node tests/node-v2-select-plans-guest.mjs | tee "$RUNNER_TEMP/select.log"
+              test "$(grep -c '^REAL_WASM_SELECT_PLAN_PASS ' "$RUNNER_TEMP/select.log")" -eq 8
+              ;;
+            llvm-select)
+              llvm_config="$(command -v llvm-config || command -v llvm-config-18 || command -v llvm-config-19 || true)"
+              if [[ -z "$llvm_config" ]]; then
+                sudo apt-get update
+                sudo apt-get install -y llvm-dev
+                llvm_config="$(command -v llvm-config)"
+              fi
+              "$llvm_config" --version
+              cmake -S . -B "$RUNNER_TEMP/llvm" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$("$llvm_config" --cmakedir)"
+              cmake --build "$RUNNER_TEMP/llvm" --target oreslang-llvmc --parallel 2
+              bash scripts/test-counted-ready-native-guest.sh "$RUNNER_TEMP/llvm/oreslang-llvmc" "$corpus" | tee "$RUNNER_TEMP/guest.log"
+              grep -Fx LLVM_COUNTED_READY_NATIVE_GUEST_PASS "$RUNNER_TEMP/guest.log"
+              ;;
+            cranelift-select)
+              cargo build --locked --release --bin orescranelift
+              bash scripts/test-counted-static-ready-native.sh target/release/orescranelift "$corpus"
+              ;;
+            hdl-roles)
+              node --test tests/actor-role-admission.test.mjs tests/actor-isolation-access-v1.test.mjs tests/execution-domain-admission.test.mjs
+              ;;
+            wasm-current)
+              node --test tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-arena-quota-parity.test.mjs tests/pinned-continuation-gate.test.mjs tests/actor-io-adversarial-stress.test.mjs tests/proxy-mailbox-terminal-order.test.mjs
+              ;;
+            forge-current)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/reactor
+              for i in 1 2 3; do timeout 30 /tmp/reactor; done
+              cmake -S . -B /tmp/forge-build -DBUILD_TESTING=ON
+              cmake --build /tmp/forge-build --target proxy_mailbox_ticket_v1_test --parallel 2
+              ctest --test-dir /tmp/forge-build -R '^proxy_mailbox_ticket_v1_test$' --output-on-failure --no-tests=error
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
