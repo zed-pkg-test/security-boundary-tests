@@ -1,0 +1,167 @@
+name: Atto wave four exact parity and hardening
+on:
+  push:
+    branches: [validation/atto-java-parity-wave-20261126]
+    paths: ['.github/workflows/atto-wave4-parity-20261126.yml']
+permissions: {}
+jobs:
+  verify:
+    name: ${{ matrix.backend }} PR ${{ matrix.pr }} ${{ matrix.lane }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - backend: 'java'
+            pr: 1949
+            head: '3054614debb1495859501d9e5adcdb156215711f'
+            tree: 'ea4859b0776e9f4a36756adb0331b01e1161fd33'
+            lane: 'alloc'
+          - backend: 'java'
+            pr: 1947
+            head: 'a60201142a13a700ad0691ca511e8701754b9a9a'
+            tree: '1b4000cc7d37423ee87b83675cd766c5fbc3e964'
+            lane: 'reactor'
+          - backend: 'java'
+            pr: 1884
+            head: '6fe84afccf8e330f9bf7f43429d6508dcf14477a'
+            tree: 'af2af474828a0aaf468052c33b60e3aa67e1ba68'
+            lane: 'copy'
+          - backend: 'java'
+            pr: 1924
+            head: '22e18de56f015c367414ff5c8dcec4f6db8fc710'
+            tree: '82bdc0eae42eeb70deb36493db9f93ae9d8809ae'
+            lane: 'init'
+          - backend: 'java'
+            pr: 1928
+            head: '0932e437d5a961692fb0eb8ff37dd984c50e0fac'
+            tree: 'ffedcd7a1c9fbc35142b1e1da15b1e665be9b911'
+            lane: 'strict'
+          - backend: 'rs'
+            pr: 661
+            head: '9f9eaec012ffa09ad73c884770a7788179fd5544'
+            tree: '85b762f7a26534ac70b0d9005e028c343ebbd2ec'
+            lane: 'import'
+          - backend: 'rs'
+            pr: 667
+            head: '5ebad8bc3b5f3c6e7966d45ca6c749725a51da8c'
+            tree: '1cbfa14df46c5b5471f2452fd3697d30e4fefba8'
+            lane: 'alloc'
+          - backend: 'js'
+            pr: 207
+            head: '61fba624c650f2fc1dba01d44164b040cf58d7b1'
+            tree: 'd370a5dac1e9cfc670b1917689477af5c46a6ced'
+            lane: 'proxy'
+          - backend: 'js'
+            pr: 208
+            head: 'b06656eda8064b955525d3cda4456d16b3f02cc6'
+            tree: '350af54c459ef8cda9ca3cf858e884fbbe7c7964'
+            lane: 'select'
+          - backend: 'wasm'
+            pr: 334
+            head: '61afdbe9436510a6445d6904a8eb65bee73ed08c'
+            tree: '7f4ca2fb14039b3c4f09574061b66c396fa62e07'
+            lane: 'proxy'
+          - backend: 'net'
+            pr: 327
+            head: 'ff713616872bad51db5726c328b8d9d4311bbb63'
+            tree: '1876ecd27dee519912fb3e6e93bb67061d786614'
+            lane: 'reactor'
+          - backend: 'forge'
+            pr: 305
+            head: 'eeab063b6f32b2cf8daf367227b15d6e8075f314'
+            tree: 'b58b9be5113e64569ebee7b20fcb15869d62c65c'
+            lane: 'reactor'
+    env:
+      BACKEND: ${{ matrix.backend }}
+      PR_NUMBER: ${{ matrix.pr }}
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+      LANE: ${{ matrix.lane }}
+    steps:
+      - name: Exact public source identity
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --depth=1 --no-tags "https://github.com/atto-lang/atto-source.$BACKEND.git" "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git -C source rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git -C source write-tree)" = "$EXPECTED_TREE"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          printf 'EXACT_TREE|%s|%s|%s|%s\n' "$BACKEND" "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        if: matrix.backend == 'net'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Execute required guest or explicitly host-only checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$BACKEND:$LANE" in
+            java:reactor)
+              export JAVA_HOME="$JAVA_HOME_25_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              javac -Xlint:all -Werror -d "$RUNNER_TEMP/reactor" src/main/java/dev/oreslang/runtime/SharedReactorPool.java src/test/java/dev/oreslang/runtime/SharedReactorPoolCheck.java
+              timeout 30 java -cp "$RUNNER_TEMP/reactor" dev.oreslang.runtime.SharedReactorPoolCheck
+              ;;
+            java:*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              case "$LANE" in
+                alloc) TESTS=AttoLibrariesV1Test,AttoAllocLibraryGuestTest ;;
+                copy) TESTS=GuestClassGraphLeaseTest,DerivedCopyPlanGuestTest ;;
+                init) TESTS=StrictIntegerArithmeticTest,StrictAttoNumericFlowTest ;;
+                strict) TESTS=StrictI64ArithmeticProofTest ;;
+                *) exit 2 ;;
+              esac
+              mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              IFS=, read -ra classes <<< "$TESTS"
+              for class in "${classes[@]}"; do
+                report="$(find target/surefire-reports -name "TEST-*.$class.xml" -print -quit)"
+                test -n "$report"
+                grep -Eq 'tests="[1-9][0-9]*"' "$report"
+                grep -Eq 'failures="0"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+              done
+              ;;
+            rs:import)
+              cargo build --bin attoc
+              ATTOC="$PWD/target/debug/attoc" node --test tests/constant_import_guest.mjs
+              cargo test --lib library:: -- --nocapture
+              ;;
+            rs:alloc)
+              cargo build --bin attoc
+              node tests/atto_libraries.mjs "$PWD/target/debug/attoc" | tee "$RUNNER_TEMP/libs.log"
+              grep -F 'PASS alloc_arena_remaining_bounds.atto' "$RUNNER_TEMP/libs.log"
+              ;;
+            js:proxy|wasm:proxy)
+              node --test tests/proxy-mailbox-terminal-order.test.mjs
+              ;;
+            js:select)
+              node --test tests/counted-select-ready-guest.test.mjs
+              ;;
+            net:reactor)
+              dotnet run --project runtime-experiment/SharedReactorPoolCheck.csproj -c Release
+              dotnet publish runtime-experiment/SharedReactorPoolCheck.csproj -c Release -r linux-x64 -p:PublishAot=true -o "$RUNNER_TEMP/reactor-aot"
+              timeout 30 "$RUNNER_TEMP/reactor-aot/SharedReactorPoolCheck"
+              ;;
+            forge:reactor)
+              for c in g++ clang++; do
+                for opt in -O1 -O2; do
+                  "$c" -std=c++17 "$opt" -pthread -Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o "$RUNNER_TEMP/reactor"
+                  timeout 30 "$RUNNER_TEMP/reactor"
+                done
+              done
+              ;;
+            *) exit 2 ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'WAVE4_PASS|%s|%s|%s|%s\n' "$BACKEND" "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE"
