@@ -1,0 +1,36 @@
+name: .NET physical HTTP completion lifetime integration
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-net-http-pin-integration-20261126.yml']
+permissions: {}
+jobs:
+  http-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Authenticate exact source and run lifetime and real HTTP gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.net.git 3fd13f77f67fb4b2fbb5d7b876762e9a1edd72aa
+          git -C source checkout --detach FETCH_HEAD
+          cd source
+          test "$(git rev-parse HEAD)" = 3fd13f77f67fb4b2fbb5d7b876762e9a1edd72aa
+          test "$(git rev-parse 'HEAD^{tree}')" = fdd12f72ce69424180762843baec0447b6828864
+          test "$(git write-tree)" = fdd12f72ce69424180762843baec0447b6828864
+          git fsck --full
+          dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release | tee "$RUNNER_TEMP/net.log"
+          grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/net.log"
+          dotnet run --project verification/Ores.Net.HttpProbe/Ores.Net.HttpProbe.csproj -c Release | tee "$RUNNER_TEMP/http.log"
+          grep -Fx ATTO_NET_HTTP_PIN_QUOTA_RETRY_PASS "$RUNNER_TEMP/http.log"
+          grep -F 'PASS .NET HTTP real sockets:' "$RUNNER_TEMP/http.log"
+          dotnet publish verification/Ores.Net.ActorExternalCompletionProbe/Ores.Net.ActorExternalCompletionProbe.csproj -c Release -r linux-x64 -o "$RUNNER_TEMP/native" -warnaserror
+          file "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | grep ELF
+          "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | tee "$RUNNER_TEMP/native.log"
+          grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/native.log"
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo NET_HTTP_PIN_INTEGRATION_EXACT_TREE_PASS
