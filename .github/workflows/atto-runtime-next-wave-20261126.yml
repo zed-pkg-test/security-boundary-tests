@@ -1,0 +1,150 @@
+name: Runtime parity - lifetime pin, actor call and dynamic selection safety
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-next-wave-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - scope: net-external
+            backend: net
+            head: '7af057f6b34d20b06267ceb518722b3d727fef5c'
+            tree: '0fe5b0a40bcd7f4f4a7875a717ce60ac092c58a2'
+          - scope: java-loans
+            backend: java
+            head: 'f7489212964f4f05d4572110807e882c01d51405'
+            tree: '5de1262b9104a039c41c5e8aba2f7972cfe327ee'
+          - scope: java-keys
+            backend: java
+            head: '48746b330ea18f9c7e18eda31b843274b0d11076'
+            tree: 'ed8fcd97e8e6bf4760c56fb4227835f8ca1c0a97'
+          - scope: java-call
+            backend: java
+            head: '3b14810f238723ea7948268bde5c498dbc9d4281'
+            tree: '70dd5652029d22b59f848a7fc3c56aada954f62e'
+          - scope: llvm-proxy
+            backend: llvm
+            head: '26958d3cbfa1dd795a30ffe5bf4dc426b34253c2'
+            tree: '08fccd6be40b0263e23154a5cd9827f5ee93e314'
+          - scope: llvm-select
+            backend: llvm
+            head: '4f1d98893976079227554fda4ad78b499b2ac73b'
+            tree: '13e156af5078cf78da3d743255373ac47ac870c9'
+          - scope: rs-select
+            backend: rs
+            head: 'e025783cf89a07ff47464c95c6ce5f7284a59717'
+            tree: 'c97e87bd86dc5cf33b1dc4198deaf8b74a2a15cb'
+          - scope: cranelift-select
+            backend: cranelift
+            head: 'c2dcc27861d670c4a4a8b17e117244d1d679f262'
+            tree: 'de17fff3c7d94731d07482cbaff4a2151fa97139'
+          - scope: cranelift-proxy
+            backend: cranelift
+            head: '4453e2c8fe4e44f8568b38343adf14a2eb6de736'
+            tree: '8abdb325200a544486eff5a3176e3fcf23a6b234'
+          - scope: js-state
+            backend: js
+            head: 'c86253de781e759cbfecc88fd896aab3aa66074a'
+            tree: 'a31bb68414b0046f35483e079d81c325e7a22fbb'
+          - scope: js-task
+            backend: js
+            head: '07e07e79b2b8eeb103f0b7cdad1443602e2fc929'
+            tree: '8338b86b06652b9a6a029b45f25eaf319acab0e0'
+          - scope: hdl-roles
+            backend: hdl
+            head: 'a4c84e0f000f2b185a75c4c49b1e6b6f4ac59aa2'
+            tree: '5f1ab84322e50784c79efe4312ec246534a9e079'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate exact public source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute candidate tests, fail closed if evidence absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          if [[ "$SCOPE" == llvm-select || "$SCOPE" == cranelift-select ]]; then
+            git init "$RUNNER_TEMP/conformance"
+            git -C "$RUNNER_TEMP/conformance" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-platform-conformance.git 61fbeac64108739e5b6c1ee3ad15eae4122b2775
+            git -C "$RUNNER_TEMP/conformance" checkout --detach FETCH_HEAD
+            test "$(git -C "$RUNNER_TEMP/conformance" rev-parse 'HEAD^{tree}')" = 765618b5919f4086fef886f2f742a5d15413b286
+            corpus="$RUNNER_TEMP/conformance/fixtures/select-source-v2"
+            test "$(git hash-object "$corpus/manifest.json")" = 944135b41af31963b6337ae099c76ed5e7753e3d
+          fi
+          case "$SCOPE" in
+            net-external)
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release | tee "$RUNNER_TEMP/net.log"
+              grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/net.log"
+              dotnet run --project verification/Atto.Net.ActorRuntime.Tests/Atto.Net.ActorRuntime.Tests.csproj -c Release
+              ;;
+            java-*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              case "$SCOPE" in
+                java-loans) tests='BorrowedOperandSuspensionAuditTest,OwnershipCheckerTest,ActorLogicalStackOverflowTest,ContinuationCarrierGuestTest,SuspendsAwaitExecutionContextGuestTest';;
+                java-keys) tests='DynamicSelectPlanGenerationTest';;
+                java-call) tests='ActorSourceTaskFrameTest';;
+              esac
+              mvn -B -ntp -Dtest="$tests" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              ;;
+            llvm-proxy)
+              gcc -std=c11 -O2 -Wall -Wextra -Werror -UNDEBUG -pthread runtime/actor_runtime.c tests/native_actor_ticket_v1.c -o /tmp/ticket
+              for i in $(seq 1 10); do timeout 45 /tmp/ticket; done
+              gcc -std=c11 -O1 -g -Wall -Wextra -Werror -UNDEBUG -pthread -fsanitize=address,undefined -fno-omit-frame-pointer runtime/actor_runtime.c tests/native_actor_ticket_v1.c -o /tmp/ticket-san
+              timeout 45 /tmp/ticket-san
+              ;;
+            llvm-select)
+              llvm_config="$(command -v llvm-config || command -v llvm-config-18 || command -v llvm-config-19)"
+              cmake -S . -B "$RUNNER_TEMP/llvm" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$("$llvm_config" --cmakedir)"
+              cmake --build "$RUNNER_TEMP/llvm" --target oreslang-llvmc --parallel 2
+              bash scripts/test-counted-ready-native-guest.sh "$RUNNER_TEMP/llvm/oreslang-llvmc" "$corpus" | tee "$RUNNER_TEMP/guest.log"
+              grep -Fx LLVM_COUNTED_READY_NATIVE_GUEST_PASS "$RUNNER_TEMP/guest.log"
+              ;;
+            rs-select)
+              cargo build --locked --bin attoc
+              node tests/node-v2-select-plans-guest.mjs | tee "$RUNNER_TEMP/select.log"
+              test "$(grep -c '^REAL_WASM_SELECT_PLAN_PASS ' "$RUNNER_TEMP/select.log")" -eq 8
+              ;;
+            cranelift-select)
+              cargo build --locked --release --bin orescranelift
+              bash scripts/test-counted-static-ready-native.sh target/release/orescranelift "$corpus"
+              ;;
+            cranelift-proxy)
+              cargo test --locked --test proxy_mailbox_ticket_v1 --test proxy_receipt_gate_v1
+              ;;
+            js-state)
+              node --test tests/state-intrinsic-profile-denial.test.mjs
+              ;;
+            js-task)
+              node --test tests/execution-domain-admission-matrix.test.mjs tests/inline-task-cli.test.mjs tests/java-canonical-worker-operators.test.mjs tests/sync-task-inline.test.mjs
+              ;;
+            hdl-roles)
+              node --test tests/actor-role-admission.test.mjs
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
