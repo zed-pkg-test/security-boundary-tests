@@ -1,0 +1,130 @@
+name: Runtime parity wave 10 - exact-tree reactor and receipt conservation
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-wave10-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - scope: llvm-reactor
+            backend: llvm
+            head: '4cbeb45aac883327e047c33f90c4209cc1d3f255'
+            tree: 'd6ef06522e24edcaee8b30a9240972689958fde8'
+          - scope: llvm-epoll
+            backend: llvm
+            head: 'e89788544a67314866ca360ddbc9918cdef5cc7c'
+            tree: '53ae8200fa6f4eaecd24bc7eba60cda0a0405a2d'
+          - scope: net-reactor
+            backend: net
+            head: 'a4864d4b8a9000028782b841a329c63519cd8a79'
+            tree: '72f185c5590341218359a9c7178b6fc426de8120'
+          - scope: js-proxy
+            backend: js
+            head: '97c8aa38980692ed3fe2ddd730c58d538417dd6f'
+            tree: '5b2383a94efc74e7f2836ff429c13da3d05bb584'
+          - scope: js-select
+            backend: js
+            head: '0cad049d52a49b6d586a6db6637c794cb699b124'
+            tree: '4d3591dc36f526d4da764b5b47f5c2ed5c29c292'
+          - scope: wasm-proxy
+            backend: wasm
+            head: 'c9bb438523fdeeb9e6a21797aa548c147e9861be'
+            tree: '0abf97bf7ef89256f9922c506ce282cd9149f2d2'
+          - scope: forge-reactor
+            backend: forge
+            head: 'eeab063b6f32b2cf8daf367227b15d6e8075f314'
+            tree: 'b58b9be5113e64569ebee7b20fcb15869d62c65c'
+          - scope: forge-proxy
+            backend: forge
+            head: 'e8bedd901820494f116ac78fe32eaf19b3ff3d4f'
+            tree: '6d83e9f1135f968e274a0e220357f95bd94cadae'
+          - scope: hdl-select
+            backend: hdl
+            head: '76ad25fab0c7b5b6f1076d931758c325fb3a4a3d'
+            tree: 'dfde9b4ffb826a84525089365563cceccd4d9206'
+          - scope: java-baseline
+            backend: java
+            head: 'c1eaedad266332e8a6ba9acf99d2287c626b8c18'
+            tree: '1b4000cc7d37423ee87b83675cd766c5fbc3e964'
+          - scope: rs-baseline
+            backend: rs
+            head: 'e0fb866f5430064836409a795eccec13bdcaf8f1'
+            tree: 'e2ebf5fcf94e38f2bc0c7f0f94612d144da0056b'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate public source exact commit root and index
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute focused runtime or admitted guest tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            llvm-*)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc/main/cpp/oreslang/runtime tests/shared_reactor_pool_test.cpp -o /tmp/reactor
+              for i in 1 2 3; do timeout 30 /tmp/reactor; done
+              if [[ "$SCOPE" == llvm-epoll ]]; then
+                for unit in NativeExecutionContextStore NativeContinuationStore NativeAwaitTraceBridge; do
+                  gcc -std=gnu11 -O1 -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -Isrc/main/cpp -c "src/main/cpp/oreslang/runtime/$unit.c" -o "/tmp/$unit.o"
+                done
+                g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -Isrc/main/cpp tests/async_io_epoll_continuation_test.cpp /tmp/NativeExecutionContextStore.o /tmp/NativeContinuationStore.o /tmp/NativeAwaitTraceBridge.o -o /tmp/epoll
+                for i in 1 2 3; do timeout 60 /tmp/epoll; done
+              fi
+              ;;
+            net-reactor)
+              dotnet build runtime-experiment/SharedReactorPoolCheck.csproj -c Release
+              for i in 1 2 3; do dotnet run --no-build --project runtime-experiment/SharedReactorPoolCheck.csproj -c Release; done
+              ;;
+            js-proxy|wasm-proxy)
+              node --test tests/proxy-mailbox-terminal-order.test.mjs
+              ;;
+            js-select)
+              node --test tests/proxy-mailbox-terminal-order.test.mjs tests/counted-select-ready-guest.test.mjs
+              ;;
+            forge-*)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/reactor
+              for i in 1 2 3; do timeout 30 /tmp/reactor; done
+              if [[ "$SCOPE" == forge-proxy ]]; then
+                cmake -S . -B /tmp/forge-build -DBUILD_TESTING=ON
+                cmake --build /tmp/forge-build --target proxy_mailbox_ticket_v1_test --parallel 2
+                ctest --test-dir /tmp/forge-build -R '^proxy_mailbox_ticket_v1_test$' --output-on-failure --no-tests=error
+              fi
+              ;;
+            hdl-select)
+              node --test tests/counted-select-admission.test.mjs tests/actor-isolation-access-v1.test.mjs tests/execution-domain-admission.test.mjs
+              ;;
+            java-baseline)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              mvn -B -ntp -Dtest=SharedReactorPoolTest,NioReadinessGroupTest,OresSchedulerContinuationLocalityTest,ActorSupervisorControlAtomicTransferTest -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              ;;
+            rs-baseline)
+              cargo test --locked --lib --test actor_arena_contract
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
