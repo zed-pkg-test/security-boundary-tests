@@ -1,0 +1,45 @@
+name: Java exact checked i64 independent classfile audit
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/java-checked-i64-audit-20261126.yml']
+permissions: {}
+jobs:
+  java-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Exact public compiler tree and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git cb2f8c9948f21fe529441f1ba8413fc72019ca36
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = cb2f8c9948f21fe529441f1ba8413fc72019ca36
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/PersistentPrimitiveClassfileSession.java)" = 0cc251f8783d7670879dcb5eb8c36fa466803d11
+          test "$(git -C source hash-object src/test/java/dev/oreslang/compiler/PersistentClassfileCacheTest.java)" = a4aba7dd3559b5fffe5dc89c574067ccf19f3921
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/CheckedI64ProviderClassfile.java)" = c4c0c14aec6a3f9d0dc027897d1946b9d475bca4
+          test "$(git -C source hash-object src/test/java/dev/oreslang/compiler/CheckedI64ProviderCacheTest.java)" = f6f9b1b6848ec80e102876ac6bd6b85c9ab0a57d
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/CheckedI64ClassfileAudit.java)" = c60f4cf84bd797b3265b9152b16efc528c943d96
+          echo "EXACT_JAVA_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - name: Actual checked compiler, process restart and namespace regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          cd source
+          java -version
+          mvn -B -Dtest=CheckedI64ProviderCacheTest,PersistentClassfileCacheTest,PinnedNamespaceInventoryTest,IncrementalPackageLayoutIsolationTest,PackageNamespaceImportSyntaxTest -Dsurefire.failIfNoSpecifiedTests=true test | tee /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_PROVIDER|' /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_CHILD|' /tmp/java-bound.log
+          grep -F 'JAVA_I64_BOUND_PROVIDER|' /tmp/java-bound.log
+          grep -F 'JAVA_I64_BOUND_CHILD|' /tmp/java-bound.log
+          grep -F 'JAVA_I64_AUDIT|' /tmp/java-bound.log
+          grep -F 'BUILD SUCCESS' /tmp/java-bound.log
+          git diff --exit-code
