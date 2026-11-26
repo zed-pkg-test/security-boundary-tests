@@ -1,0 +1,114 @@
+name: Runtime parity - native AOT selection and ownership integration
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-postmerge-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: net-proxy
+            backend: net
+            head: '5d998807492089a0ec9ab718a78d68f1773c9366'
+            tree: '2969ab9198a60f6c4e8b66e9ecc50f0d8ef4c2a7'
+          - scope: net-select
+            backend: net
+            head: 'fde0efba06b7a07097c75886fa5cc7a6f81c7121'
+            tree: 'd741a8a68b884cb33e284725a9438c33bfaa51e8'
+          - scope: cranelift-unwrap
+            backend: cranelift
+            head: '1bab246cc7d6feeb2112ce7d50631f96e5ecc34b'
+            tree: 'b887c8a517668fd38d87e5d8a16abe426074195e'
+          - scope: java-loan-baseline
+            backend: java
+            head: 'd0972f93a788b09f1491f8425a3d8465d5f9a7b3'
+            tree: '4b154fb73d38db3d0aee1af8411d09fda0ba4915'
+          - scope: java-loan-fix
+            backend: java
+            head: 'f7489212964f4f05d4572110807e882c01d51405'
+            tree: '5de1262b9104a039c41c5e8aba2f7972cfe327ee'
+          - scope: llvm-reuse
+            backend: llvm
+            head: 'ca9f5af4eac11c7ef87bca7b9da00edd50d511f4'
+            tree: 'edf87b329fc10bc870367a6513288cd3248dd396'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate public source commit root and index
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute native and ownership boundary gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            net-proxy|net-select)
+              dotnet run --project tests/Atto.ProxyReceiptGate.HostModel/Atto.ProxyReceiptGate.HostModel.csproj -c Release | tee "$RUNNER_TEMP/proxy.log"
+              grep -Fx 'ATTO_NET_HOST_TERMINAL_RACES_64=PASS' "$RUNNER_TEMP/proxy.log"
+              if [[ "$SCOPE" == net-select ]]; then
+                bash scripts/test-counted-ready-nativeaot-guest.sh | tee "$RUNNER_TEMP/select.log"
+                grep -Fx 'COUNTED_READY_NATIVEAOT_GUEST_PASS' "$RUNNER_TEMP/select.log"
+                test "$(grep -c '^GUEST_PASS ' "$RUNNER_TEMP/select.log")" -eq 11
+              fi
+              ;;
+            cranelift-unwrap)
+              cargo test --locked result_int_parse_v1 -- --nocapture 2>&1 | tee "$RUNNER_TEMP/unwrap.log"
+              grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$RUNNER_TEMP/unwrap.log"
+              cargo test --locked --test result_int_parse_admission
+              ;;
+            java-loan-*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              if [[ "$SCOPE" == java-loan-baseline ]]; then
+                # Baseline is intentionally expected to fail: require named
+                # failures, not a compilation, admission or infrastructure error.
+                set +e
+                mvn -B -ntp -Dtest=BorrowedOperandSuspensionAuditTest -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+                status=$?
+                set -e
+                test "$status" -ne 0
+                report="$(find target/surefire-reports -name 'TEST-*.BorrowedOperandSuspensionAuditTest.xml' -print -quit)"
+                test -n "$report"
+                grep -Eq 'failures="[1-9][0-9]*"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+                echo 'EXPECTED_BASELINE_LOAN_REGRESSION_REPRODUCED'
+              else
+                mvn -B -ntp -Dtest=BorrowedOperandSuspensionAuditTest,SuspendsAwaitExecutionContextGuestTest,ContinuationCarrierGuestTest,ActorLogicalStackOverflowTest -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              fi
+              ;;
+            llvm-reuse)
+              units=(NativeActorLogicalFramesV1 NativeActorScheduler NativeOresVM NativeActorFuture)
+              files=()
+              for u in "${units[@]}"; do files+=("src/main/cpp/oreslang/runtime/$u.c"); done
+              gcc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -Isrc/main/cpp tests/native_actor_frame_quota_vm_supervised_test.c "${files[@]}" -o /tmp/vm-reuse
+              timeout 60 /tmp/vm-reuse
+              timeout 900 /tmp/vm-reuse --reuse
+              gcc -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc/main/cpp tests/native_actor_frame_quota_vm_supervised_test.c "${files[@]}" -o /tmp/vm-reuse-san
+              timeout 60 /tmp/vm-reuse-san
+              timeout 900 /tmp/vm-reuse-san --reuse
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
