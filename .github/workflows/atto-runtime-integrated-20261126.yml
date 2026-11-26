@@ -1,0 +1,104 @@
+name: Atto runtime integrated tree and remaining target admission
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-integrated-20261126.yml']
+permissions: {}
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: java-nio
+            backend: java
+            head: '9eee36d331cd2d16d8c055e2110d360c7218f096'
+            tree: 'd030612497a19719a384a89ee5d225c1a0dd0a02'
+          - scope: java-control
+            backend: java
+            head: '8964cdc3be7f9b944ac5c1da476e3d8b8f2f4fb5'
+            tree: '67aaeaf398756e4344d4c78b4ddce354fc096f0e'
+          - scope: rs
+            backend: rs
+            head: '5631e14c4f07d9e5b4cbad1012f3d22bdd6bf784'
+            tree: '64a5e9c30c8fb678c822b25b7a0a303d106b8117'
+          - scope: net
+            backend: net
+            head: 'd75de04fabfaa7fcd0dcbd41147e6e8f524346bd'
+            tree: '11fb88860a44159fe20db8a8cf7deda742866988'
+          - scope: atto
+            backend: atto
+            head: '434f3ea3af93cd9c1ce3f034c1140a869595a7c8'
+            tree: '95e77edbde71b8a25eef8bdfa0556aafef8d2263'
+          - scope: hdl
+            backend: hdl
+            head: '3faca02b47cd908eb8297507be6e3754901d2821'
+            tree: '815d13fc5f5564b0a32dbf2b0a5cb2cc052e37be'
+          - scope: realtime
+            backend: realtime
+            head: '88bdaf4a9bdf562db226a54c85d8bc5b96526b92'
+            tree: 'e39a6b75ff54c6fa8be4a363bcd326af760f5fa9'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Verify exact public source commit and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Run scoped tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            java-*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              TESTS='NioReadinessGroupTest,OresVMNioReadinessLifecycleTest,OresSchedulerTest,OresSchedulerContinuationLocalityTest,OresSchedulerCancelCloseRaceTest,ActorExecutionContextTest,ActorHeapIncarnationTest,ActorHeapPlacementGuardTest,LogicalStackQuotaTest,ActorSupervisorControlConservationTest'
+              if [[ "$SCOPE" == java-control ]]; then TESTS="$TESTS,ActorSupervisorControlAtomicTransferTest,ActorSupervisorControlCounterSaturationTest"; fi
+              mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              IFS=, read -ra classes <<< "$TESTS"
+              for class in "${classes[@]}"; do
+                report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+                test -n "$report"
+                grep -Eq 'tests="[1-9][0-9]*"' "$report"
+                grep -Eq 'failures="0"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+              done
+              ;;
+            rs)
+              cargo test --locked --lib 2>&1 | tee "$RUNNER_TEMP/rs.log"
+              test "$(grep -Ec 'actor_stack_bound::.* \.\.\. ok' "$RUNNER_TEMP/rs.log")" -ge 12
+              ;;
+            net)
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release
+              ;;
+            atto)
+              node --test tests/hybrid-actor-memory-bootstrap-v1.test.mjs
+              ;;
+            hdl)
+              node --test tests/actor-isolation-access-v1.test.mjs tests/actor-future-source.test.mjs tests/execution-domain-admission.test.mjs
+              ;;
+            realtime)
+              node --test tests/hybrid-actor-memory-realtime-admission.test.mjs
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
