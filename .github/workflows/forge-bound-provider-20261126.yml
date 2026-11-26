@@ -1,0 +1,122 @@
+name: Atto Forge V3 native guest
+on:
+  push:
+    branches: [ci/forge-bound-provider-20261126]
+    paths: ['.github/workflows/forge-bound-provider-20261126.yml']
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/forge-bound-provider-20261126.yml']
+permissions: {}
+jobs:
+  forge-v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify exact public compiler and fixture trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          fetch() {
+            local dir="$1" repo="$2" head="$3" file="$4" blob="$5"
+            git init "$dir"
+            git -C "$dir" -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 "https://github.com/$repo.git" "$head"
+            git -C "$dir" checkout --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$head"
+            local tree
+            tree="$(git -C "$dir" rev-parse "$head^{tree}")"
+            test "$(git -C "$dir" write-tree)" = "$tree"
+            git -C "$dir" diff --exit-code
+            git -C "$dir" fsck --full
+            test "$(git -C "$dir" hash-object "$file")" = "$blob"
+            printf 'EXACT_PUBLIC_HEAD|%s|%s|%s|%s\n' "$repo" "$head" "$tree" "$blob"
+          }
+          fetch source atto-lang/atto-source.forge d685d3eaf8ded784d059a9c36db449afefe92ecd compiler/namespace_provider.hpp f5f5afbab70206df03faa3058323bb201c65922d
+          test "$(git -C source hash-object compiler/persistent_assembly.hpp)" = b8ed85fdd51fc0a1891fcd530557588d31870ef4
+          test "$(git -C source hash-object compiler/persistent_assembly.cpp)" = b0843fb48733ebab400a19f380961be0955e44ff
+          test "$(git -C source hash-object tests/persistent_namespace_provider.cpp)" = 6c888ee100af988923ef977815005bcdf4532f49
+          fetch fixture atto-lang/atto-compilers-parity-testing 6f79886011fa37efa7cc1e59a850407a7641d1dc fixtures/package-namespace-v3/adapters/forge/native-session.test.mjs 3c93732e2e534c3101fab01393dfe87777c6f459
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/forge/provider.cpp)" = 5b7f0a0d965e8bd5afad65626b4779efa3b518bf
+          test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/forge/native-session.mjs)" = 017310abe796d99055b580c525edd8db2ad6c464
+      - name: Build actual compiler and external driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          c++ --version
+          node --version
+          cd source
+          c++ -std=c++20 -O2 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp ../fixture/fixtures/package-namespace-v3/adapters/forge/provider.cpp -o "$RUNNER_TEMP/forge-v3-driver"
+          printf 'namespace billing;\npub fnc function0(): int { return 0; }\n' | "$RUNNER_TEMP/forge-v3-driver" billing function0 > "$RUNNER_TEMP/forge-v3-smoke.s"
+          grep -F 'oresforge_entry:' "$RUNNER_TEMP/forge-v3-smoke.s"
+          for lane in private foreign arity dotted; do
+            case "$lane" in
+              private) src='namespace billing;\nfnc function0(): int { return 0; }\n'; ns=billing ;;
+              foreign) src='namespace identity;\npub fnc function0(): int { return 0; }\n'; ns=billing ;;
+              arity) src='namespace billing;\npub fnc function0(int x): int { return x; }\n'; ns=billing ;;
+              dotted) src='namespace billing.foo;\npub fnc function0(): int { return 0; }\n'; ns=billing.foo ;;
+            esac
+            if printf '%b' "$src" | "$RUNNER_TEMP/forge-v3-driver" "$ns" function0 > "$RUNNER_TEMP/rejected.s" 2> "$RUNNER_TEMP/denial"; then exit 1; fi
+            test ! -s "$RUNNER_TEMP/rejected.s"
+            if [ "$lane" = arity ]; then grep -E '^E_NAMESPACE_ARITY:' "$RUNNER_TEMP/denial"; else grep -E '^E_NAMESPACE_PROFILE:' "$RUNNER_TEMP/denial"; fi
+          done
+          echo FORGE_DIRECT_PROVIDER_NEGATIVES=4_VERIFIED
+      - name: Execute native linked V3 guest and mutation controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ATTO_FORGE_DRIVER="$RUNNER_TEMP/forge-v3-driver"
+          export ATTO_V3_FIXTURE="$PWD/fixture/fixtures/package-namespace-v3"
+          node --test --test-reporter=tap "$ATTO_V3_FIXTURE/adapters/forge/native-session.test.mjs" | tee /tmp/atto-forge-v3.tap
+          grep -F 'V3_FORGE_NATIVE|' /tmp/atto-forge-v3.tap
+          grep -F 'V3_FORGE_NEGATIVES|' /tmp/atto-forge-v3.tap
+          grep -F 'V3_FORGE_PARAMETERIZED|' /tmp/atto-forge-v3.tap
+          grep -E '^# tests 3$' /tmp/atto-forge-v3.tap
+          grep -E '^# pass 3$' /tmp/atto-forge-v3.tap
+          grep -E '^# skipped 0$' /tmp/atto-forge-v3.tap
+      - name: Existing incremental and persistent cache regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp tests/incremental_session.cpp -o /tmp/forge-regression
+          /tmp/forge-regression /tmp/forge-cold.s /tmp/forge-edit.s
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp tests/compiler_cache_envelope.cpp -lcrypto -o /tmp/forge-envelope
+          /tmp/forge-envelope
+          printf '%s\n' '#include <stdint.h>' 'extern int64_t oresforge_entry(int64_t);' 'int main(void){return (int)oresforge_entry(41);}' > /tmp/forge-host.c
+          for lane in cold edit; do
+            cc /tmp/forge-host.c "/tmp/forge-$lane.s" -o "/tmp/forge-$lane"
+            rc=0; "/tmp/forge-$lane" || rc=$?
+            if [ "$lane" = cold ]; then test "$rc" = 42; else test "$rc" = 43; fi
+          done
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp compiler/persistent_assembly.cpp tests/persistent_assembly_api.cpp -lcrypto -o /tmp/forge-api
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          compiler="$(sha256sum /tmp/forge-api | cut -d' ' -f1)"
+          for lane in cold warm edit; do
+            /tmp/forge-api "$work" "$lane" "$compiler" "$work/$lane.s"
+            cc /tmp/forge-host.c "$work/$lane.s" -o "$work/$lane"
+            rc=0; "$work/$lane" || rc=$?
+            if [ "$lane" = edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+          done
+          cmp "$work/cold.s" "$work/warm.s"
+          echo FORGE_REGRESSION_NATIVE=42_42_43
+      - name: Persistent selected provider independent processes and real native guests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp compiler/persistent_assembly.cpp tests/persistent_namespace_provider.cpp -lcrypto -o "$RUNNER_TEMP/forge-bound"
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          mkdir -m 700 "$work/cache"
+          compiler="$(sha256sum "$RUNNER_TEMP/forge-bound" | cut -d' ' -f1)"
+          printf '%s\n' '#include <stdint.h>' 'extern int64_t oresforge_entry(int64_t,int64_t);' 'int main(void){return (int)oresforge_entry(10,4);}' > "$work/host.c"
+          for lane in cold warm edit; do
+            "$RUNNER_TEMP/forge-bound" "$work/cache" "$lane" "$compiler" "$work/$lane.s"
+            cc -Wl,-z,noexecstack "$work/host.c" "$work/$lane.s" -o "$work/$lane"
+            rc=0; "$work/$lane" || rc=$?
+            if [ "$lane" = edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+            readelf -W -l "$work/$lane" | awk '$1 == "GNU_STACK" { seen++; if ($7 != "RW") bad=1 } END { exit !(seen==1 && !bad) }'
+            echo "FORGE_BOUND_NATIVE|$lane|$rc"
+          done
+          cmp "$work/cold.s" "$work/warm.s"
