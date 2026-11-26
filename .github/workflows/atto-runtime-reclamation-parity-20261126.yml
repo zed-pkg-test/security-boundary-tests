@@ -1,0 +1,136 @@
+name: Runtime parity - reclamation, proxy and selection evidence
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-reclamation-parity-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: java-loan-full
+            backend: java
+            head: 'f7489212964f4f05d4572110807e882c01d51405'
+            tree: '5de1262b9104a039c41c5e8aba2f7972cfe327ee'
+          - scope: java-proxy
+            backend: java
+            head: '2701dcfe216111fdb4dcdc1a0c174942dd860168'
+            tree: 'a8d37daa8ff20cc514f1032698c0b9ffe4fd0791'
+          - scope: llvm-reuse-cmake
+            backend: llvm
+            head: 'ca9f5af4eac11c7ef87bca7b9da00edd50d511f4'
+            tree: 'edf87b329fc10bc870367a6513288cd3248dd396'
+          - scope: rs-fair
+            backend: rs
+            head: '406dea05ee7e57e2948c82328e05bd429fd20cff'
+            tree: '8c8e7efea56a79e048f1ae461b78b2f833b06640'
+          - scope: rs-counted
+            backend: rs
+            head: 'b08be1f7c29bf3558e9406925d78d4590801d0c9'
+            tree: 'a86f4730bba95cb1c0dae158e9487bd37b9d817c'
+          - scope: cranelift-proxy
+            backend: cranelift
+            head: '4453e2c8fe4e44f8568b38343adf14a2eb6de736'
+            tree: '8abdb325200a544486eff5a3176e3fcf23a6b234'
+          - scope: forge-adapter
+            backend: forge
+            head: 'b80b6d82fc2f3027b014699f9919ba9a36a2b8a7'
+            tree: '1df1c90fe6bba70830d92cc7af94ff3604e16e99'
+          - scope: atto-bootstrap-host
+            backend: atto
+            head: '9494c122bd0aad50889718a6053ca034e98b001c'
+            tree: '0a1a6569fb9b41380899b03338908e357059ca4a'
+          - scope: realtime-native
+            backend: realtime
+            head: '9552cb80164e8c544fb4a98fd8dcb5beb529d022'
+            tree: 'e765959b92206f1124ec61048c0afadbad8b2904'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate exact public source commit and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute focused and full regression as applicable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            java-loan-full)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              mvn -B -ntp -DfailIfNoTests=true test
+              ;;
+            java-proxy)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              ATTO_EXPECTED_HEAD_SHA="$HEAD_SHA" bash ci/m10/verify-remote-actor-ipc-jvm.sh
+              ;;
+            llvm-reuse-cmake)
+              cmake -S . -B "$RUNNER_TEMP/llvm-host" -DATTO_ACTOR_LOGICAL_FRAMES_HOST_ONLY=ON -DBUILD_TESTING=ON
+              cmake --build "$RUNNER_TEMP/llvm-host" --target atto-native-vm-supervised-quota-host-test --parallel 2
+              ctest --test-dir "$RUNNER_TEMP/llvm-host" -R '^native_vm_(registered_actor_frame_quota_supervisor|supervised_leaf_million_reuse)$' --output-on-failure --no-tests=error
+              ;;
+            rs-fair)
+              cargo build --locked --bin attoc
+              node tests/node-v2-select-plans-guest.mjs
+              ;;
+            rs-counted)
+              cargo build --locked --release --bin attoc
+              rustup target add wasm32-unknown-unknown
+              cargo rustc --locked --release --lib --target wasm32-unknown-unknown --crate-type cdylib -- -C link-arg=--max-memory=67108864
+              mkdir "$RUNNER_TEMP/corpus"
+              cp tests/fixtures/select-source-v2/*.atto "$RUNNER_TEMP/corpus/"
+              cat > "$RUNNER_TEMP/corpus/manifest.json" <<'EOF'
+          {"cases":[{"id":"counted-mixed-future-alias","path":"counted-mixed-future-alias.atto","gitBlobSha1":"8f57de03c9fb44eb5594c99a7095f34b702a266a","target":{"mode":"run"}},{"id":"counted-multi-channel-fair","path":"counted-multi-channel-fair.atto","gitBlobSha1":"4b9b79b9b8670f5b282d33e63b7a4b5691c2979a","target":{"mode":"run"}},{"id":"counted-mixed-zero","path":"counted-mixed-zero.atto","gitBlobSha1":"458323db6019da434b97e5b966ee646411310acf","target":{"mode":"run"}},{"id":"counted-three","path":"counted-three.atto","gitBlobSha1":"6531efa0689f2a5728b40a6412651e8143e45865","target":{"mode":"run"}},{"id":"counted-zero","path":"counted-zero.atto","gitBlobSha1":"42e49fc1eea64b31e86ec722e1457c1ab706a7e1","target":{"mode":"run"}},{"id":"counted-one","path":"counted-one.atto","gitBlobSha1":"910062ebf96613d15a16ddb080abd89375d7709c","target":{"mode":"run"}},{"id":"reject-counted-negative","path":"reject-counted-negative.atto","gitBlobSha1":"e2ff6fdb406b8807b74fa15beaee10a7f9438e22","target":{"mode":"reject"}},{"id":"reject-counted-bool","path":"reject-counted-bool.atto","gitBlobSha1":"4a52c22442bc8a9fe55eb95b23722595db32c97e","target":{"mode":"reject"}},{"id":"reject-counted-scalar","path":"reject-counted-scalar.atto","gitBlobSha1":"a2a2dd184237f17b5e8d455f498719ef1ed01d97","target":{"mode":"reject"}},{"id":"reject-counted-default","path":"reject-counted-default.atto","gitBlobSha1":"0c67c1fc8eaf55df6abb2b0fe7d2ce80f169bc69","target":{"mode":"reject"}},{"id":"reject-counted-write","path":"reject-counted-write.atto","gitBlobSha1":"63fa3c9add56f3793e6d755f006cd3568acf1f04","target":{"mode":"reject"}},{"id":"reject-counted-dynamic-bool","path":"reject-counted-dynamic-bool.atto","gitBlobSha1":"36cd372a5385e34f2e3bd8dd936e4e0491052633","target":{"mode":"reject"}},{"id":"reject-counted-dynamic-unknown","path":"reject-counted-dynamic-unknown.atto","gitBlobSha1":"0e61da7a98987ed5a182148538b35b8a890abf26","target":{"mode":"reject"}},{"id":"counted-alias","path":"counted-alias.atto","gitBlobSha1":"324837078af3e7eeb9b619d0fb07142f0a0d6291","target":{"mode":"run"}},{"id":"counted-dynamic","path":"counted-dynamic.atto","gitBlobSha1":"7c9ea9270d766612de0d502147e0df31b0dc3454","target":{"mode":"run"}},{"id":"counted-dynamic-zero","path":"counted-dynamic-zero.atto","gitBlobSha1":"4707b13d3daebe05ced967418ba120cf801e2d8c","target":{"mode":"run"}},{"id":"counted-distinct-alias-projection","path":"counted-distinct-alias-projection.atto","gitBlobSha1":"5baca9bb9eb4b98500cab770888a45fb60bbf10d","target":{"mode":"run"}}]}
+          EOF
+              node tests/counted-ready-wasm-parity.mjs target/release/attoc target/wasm32-unknown-unknown/release/atto_compiler.wasm "$RUNNER_TEMP/corpus"
+              ;;
+            cranelift-proxy)
+              rustc --edition 2024 --test tests/proxy_mailbox_ticket_v1.rs -o "$RUNNER_TEMP/tickets"
+              for round in 1 2 3; do "$RUNNER_TEMP/tickets" --nocapture; done
+              rustc --edition 2024 --test tests/proxy_receipt_gate_v1.rs -o "$RUNNER_TEMP/receipts"
+              "$RUNNER_TEMP/receipts" --nocapture
+              ;;
+            forge-adapter)
+              node --test tests/std-metrics-json-zorde-guest-admission.test.mjs
+              echo 'HOST_ADAPTER_ONLY'
+              ;;
+            atto-bootstrap-host)
+              rustc --edition 2021 --test tests/scalar_seed_model.rs -o "$RUNNER_TEMP/seed"
+              "$RUNNER_TEMP/seed" --nocapture
+              node --test tests/scalar_seed_wasm.test.mjs scripts/stage0_native_gate.test.mjs tests/hybrid-actor-memory-bootstrap-v1.test.mjs
+              echo 'BOOTSTRAP_HOST_MODEL_ONLY'
+              ;;
+            realtime-native)
+              git init "$RUNNER_TEMP/forge"
+              git -C "$RUNNER_TEMP/forge" -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.forge.git aa57a912ac9992e3ee7a6d7d370edebdec85a230
+              git -C "$RUNNER_TEMP/forge" checkout --detach FETCH_HEAD
+              test "$(git -C "$RUNNER_TEMP/forge" rev-parse HEAD)" = aa57a912ac9992e3ee7a6d7d370edebdec85a230
+              test "$(git -C "$RUNNER_TEMP/forge" rev-parse 'HEAD^{tree}')" = 16d4f0ad052ebc4be4a24321a1842ba2f94b4ea6
+              test "$(git -C "$RUNNER_TEMP/forge" write-tree)" = 16d4f0ad052ebc4be4a24321a1842ba2f94b4ea6
+              g++ -std=c++20 -O2 -Wall -Wextra -Werror -I"$RUNNER_TEMP/forge/include" src/strict_quantity_seed.cpp -o "$RUNNER_TEMP/rt-compiler"
+              node tests/strict_quantity_native_gate.mjs "$RUNNER_TEMP/rt-compiler"
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
