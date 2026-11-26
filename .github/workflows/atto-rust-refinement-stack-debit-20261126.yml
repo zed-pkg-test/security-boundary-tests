@@ -1,0 +1,110 @@
+name: Atto Rust refinement actor stack and debit regression
+on:
+  push:
+    branches: [validation/atto-java-parity-wave-20261126]
+    paths: ['.github/workflows/atto-rust-refinement-stack-debit-20261126.yml']
+permissions: {}
+jobs:
+  guest:
+    name: ${{ matrix.backend }} exact guest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include:
+          - backend: 'rs'
+            head: '8a36c61c7a1e2033ba50ded2c527dc1cf913ac4c'
+            tree: '4e58e56ade6992343878423a69d7b9a5c6faa5d0'
+            os: 'ubuntu-latest'
+    env:
+      BACKEND: ${{ matrix.backend }}
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+    steps:
+      - name: Verify exact public compiler tree and shared corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git -C source rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git -C source write-tree)" = "$EXPECTED_TREE"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          test "$(git -C source hash-object contracts/atto-xo-checked-debit-v1/cases.tsv)" = 6831dbd0c18eeaa2078fa5f3e324d0f88b40771e
+          printf 'EXACT_CORPUS|%s|%s|%s\n' "$BACKEND" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        if: matrix.backend == 'net'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and execute real compiler guests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$BACKEND" in
+            js)
+              node --test tests/atto-xo-checked-debit-v1.test.mjs tests/checked-debit-corpus.test.mjs
+              ;;
+            rs)
+              cargo test --manifest-path native/Cargo.toml --test checked_i64_interprocedural -- --nocapture | tee "$RUNNER_TEMP/guest.log"
+              grep -F 'atto_xo_checked_debit_shared_guests ... ok' "$RUNNER_TEMP/guest.log"
+              cargo test --lib actor_stack_bound::tests -- --nocapture | tee "$RUNNER_TEMP/stack.log"
+              grep -F 'refinement_check_cannot_hide_recursive_call ... ok' "$RUNNER_TEMP/stack.log"
+              cargo test --test actor_arena_contract --test core_math_hash_cell_source --test select_default_admission -- --nocapture
+              node --test tests/constant_import_guest.mjs
+              ;;
+            cranelift)
+              cargo test --test continuation_admission --test declarative_export_trailing_boundary --test functional_tuple_patterns --test linked_scalar_module_native --test pull_push_unsupported_gate --test quantity_refinement_aot --test shared_bool_native --test std_time_frontend --test strict_initializer -- --nocapture | tee "$RUNNER_TEMP/guest.log"
+              grep -F 'shared_atto_xo_debit_corpus_executes_unchanged_linked_native_guests ... ok' "$RUNNER_TEMP/guest.log"
+              test "$(grep -c 'test result: ok.' "$RUNNER_TEMP/guest.log")" -eq 9
+              ;;
+            llvm|wasm)
+              sudo apt-get update -qq
+              sudo apt-get install -y llvm-18-dev clang-18 lld-18
+              export PATH="/usr/lib/llvm-18/bin:$PATH"
+              test "$(llvm-config --version | cut -d. -f1)" = 18
+              clang --version | head -n 1
+              wasm-ld --version
+              LLVM_DIR="$(llvm-config --cmakedir)"
+              if [[ "$BACKEND" == wasm ]]; then
+                git init "$RUNNER_TEMP/llvm"
+                git -C "$RUNNER_TEMP/llvm" -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.llvm.git 5b89c318440286bef7a00b4bfcee57f3beb0781f
+                git -C "$RUNNER_TEMP/llvm" checkout --detach FETCH_HEAD
+                test "$(git -C "$RUNNER_TEMP/llvm" rev-parse HEAD)" = 5b89c318440286bef7a00b4bfcee57f3beb0781f
+                test "$(git -C "$RUNNER_TEMP/llvm" write-tree)" = 03fd1843c2c111212aa772496de3e231e0676af4
+                cmake -S "$RUNNER_TEMP/llvm" -B "$RUNNER_TEMP/llvm-build" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$LLVM_DIR"
+              else
+                cmake -S . -B "$RUNNER_TEMP/llvm-build" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$LLVM_DIR"
+              fi
+              cmake --build "$RUNNER_TEMP/llvm-build" --target oreslang-llvmc --parallel 2
+              compiler="$RUNNER_TEMP/llvm-build/oreslang-llvmc"
+              test -x "$compiler"
+              if [[ "$BACKEND" == wasm ]]; then
+                export ORESLANG_LLVM_COMPILER="$compiler"
+                export ORESLANG_LLVM_COMPILER_SHA256="$(sha256sum "$compiler" | cut -d' ' -f1)"
+                export ORESLANG_SCALAR_PARITY_REQUIRED=1
+                export CLANG=/usr/lib/llvm-18/bin/clang
+                node --test tests/atto-xo-checked-debit-wasm32.test.mjs
+              else
+                cmake -DCORPUS="$PWD/contracts/atto-xo-checked-debit-v1/cases.tsv" -DCOMPILER="$compiler" -DCLANG=/usr/lib/llvm-18/bin/clang -DWORKDIR="$RUNNER_TEMP/llvm-guests" -P tests/atto_xo_checked_debit_native.cmake
+              fi
+              ;;
+            forge)
+              cmake -S . -B "$RUNNER_TEMP/forge-build" -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+              cmake --build "$RUNNER_TEMP/forge-build" --target oresforge --parallel 2
+              ctest --test-dir "$RUNNER_TEMP/forge-build" -R '^oresforge_real_native_recursive_calls$' --no-tests=error --output-on-failure -V
+              ;;
+            net)
+              bash ci/test-atto-xo-checked-debit.sh coreclr
+              ;;
+            *) exit 2 ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'EXACT_GUEST_LANE_PASS|%s|%s|%s\n' "$BACKEND" "$EXPECTED_HEAD" "$EXPECTED_TREE"
