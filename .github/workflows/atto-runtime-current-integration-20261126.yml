@@ -1,0 +1,184 @@
+name: Runtime parity - exact current-main integration and guest regression
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-current-integration-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - scope: net-pin
+            backend: net
+            head: '945e3c57e5c9a9dd8a010feef4f54dea96f6926b'
+            tree: '47437c270d156d7292f6d6cfa2b691f710d91996'
+          - scope: java-loan
+            backend: java
+            head: '751f05162d6333eb639ed335ca3a7425b70e8ee0'
+            tree: 'b893999fe85553b1bfc90cbb36997cd48d0be97d'
+          - scope: java-frame
+            backend: java
+            head: '2b5606213a4cefa82f1682cade940c5544cfdfed'
+            tree: '69b0d24ed25aa4342c29cdcb7dd6108164c8ac01'
+          - scope: java-keys
+            backend: java
+            head: '00a6cb13a747e714018d68928e169c15e36461f2'
+            tree: '6b2cff10555d911ae4def6d5f74a7fff8c99c1f5'
+          - scope: llvm-proxy
+            backend: llvm
+            head: '95ef34434f0f991edd71be55a14841088df17cd5'
+            tree: '5854665c468e7689bb983bd48aa66a1f412254c8'
+          - scope: llvm-select
+            backend: llvm
+            head: '77670ca515a6ecb1376fff4a70a129a5123cac52'
+            tree: '9d4e2b961acf2ec7f1fc936b2f1168180552bd6a'
+          - scope: rust-select
+            backend: rs
+            head: '0e79bf62b1f36b1a4b95cea581082b201a8c77be'
+            tree: '491c604774402585a6076a46b466651af2b5d640'
+          - scope: js-current
+            backend: js
+            head: 'e9009f02c2a984c76d0dbe953b6c949d63bf2538'
+            tree: '11534ff3ddad96fe2f7b8bb11dd79e92ddb37e73'
+          - scope: wasm-current
+            backend: wasm
+            head: 'c60c59c6702ad28ebeb03a7e95db261cbc5f7e67'
+            tree: 'cc76bef7740c7fbe4d0cf11eedf8a572ef3c21b4'
+          - scope: forge-current
+            backend: forge
+            head: 'ea7830a1732ab271dd4393aacd88e4a1659bd3d6'
+            tree: '3018eb7bac96d4162524d623cd6217df5955c078'
+          - scope: cranelift-current
+            backend: cranelift
+            head: 'd680421069976da4df7e749df7686d36b32166d9'
+            tree: '0f29bc67986553757694b1e2d11f343edcaff47a'
+          - scope: atto-current
+            backend: atto
+            head: 'c9f9b2164f4f33b4d394d21de3c7de507a6061c1'
+            tree: 'd24b80ad91f7ab325610d6dae660e0636842a652'
+          - scope: hdl-current
+            backend: hdl
+            head: '418e828b741dfaed1fae3e0acb5db84a4d4f300e'
+            tree: 'c1ff4518ecdbe7d453f1f05a12cedf50ff304834'
+          - scope: realtime-current
+            backend: realtime
+            head: '23fa946be5e5ad5a0c169a34a38a7b9a8c96ee05'
+            tree: 'a543d586cccfdbe8d2c9aa774d029b7604a0cb69'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate exact public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute scope and verify no tracked source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            net-pin)
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release | tee "$RUNNER_TEMP/net.log"
+              grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/net.log"
+              dotnet run --project verification/Atto.Net.ActorRuntime.Tests/Atto.Net.ActorRuntime.Tests.csproj -c Release
+              dotnet publish verification/Ores.Net.ActorExternalCompletionProbe/Ores.Net.ActorExternalCompletionProbe.csproj -c Release -r linux-x64 -o "$RUNNER_TEMP/native" -warnaserror
+              file "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | grep ELF
+              "$RUNNER_TEMP/native/Ores.Net.ActorExternalCompletionProbe" | tee "$RUNNER_TEMP/native.log"
+              grep -Fx ATTO_NET_EXTERNAL_COMPLETION_PIN_BEFORE_START_PASS "$RUNNER_TEMP/native.log"
+              ;;
+            java-*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              case "$SCOPE" in
+                java-loan) tests='BorrowedOperandSuspensionAuditTest,ActorLogicalStackOverflowTest,ContinuationCarrierGuestTest,SuspendsAwaitExecutionContextGuestTest,AttoAsyncNioActorGuestTest,AttoNioReactorStressGuestTest,ActorCodeIsolationAttoGuestTest';;
+                java-frame) tests='ActorSourceTaskFrameTest,GuestScalarActorInvocationLanguageTest';;
+                java-keys) tests='DynamicSelectPlanGenerationTest';;
+              esac
+              mvn -B -ntp -Dtest="$tests" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              IFS=, read -ra classes <<< "$tests"
+              for class in "${classes[@]}"; do
+                report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+                test -n "$report"
+                grep -Eq 'tests="[1-9][0-9]*"' "$report"
+                grep -Eq 'failures="0"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+              done
+              ;;
+            llvm-proxy)
+              gcc -std=c11 -O2 -Wall -Wextra -Werror -UNDEBUG -pthread runtime/actor_runtime.c tests/native_actor_ticket_v1.c -o /tmp/ticket
+              for i in $(seq 1 10); do timeout 45 /tmp/ticket; done
+              gcc -std=c11 -O1 -g -Wall -Wextra -Werror -UNDEBUG -pthread -fsanitize=address,undefined -fno-omit-frame-pointer runtime/actor_runtime.c tests/native_actor_ticket_v1.c -o /tmp/ticket-san
+              timeout 45 /tmp/ticket-san
+              ;;
+            llvm-select)
+              git init "$RUNNER_TEMP/conformance"
+              git -C "$RUNNER_TEMP/conformance" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-platform-conformance.git 61fbeac64108739e5b6c1ee3ad15eae4122b2775
+              git -C "$RUNNER_TEMP/conformance" checkout --detach FETCH_HEAD
+              test "$(git -C "$RUNNER_TEMP/conformance" rev-parse 'HEAD^{tree}')" = 765618b5919f4086fef886f2f742a5d15413b286
+              corpus="$RUNNER_TEMP/conformance/fixtures/select-source-v2"
+              test "$(git hash-object --no-filters "$corpus/manifest.json")" = 944135b41af31963b6337ae099c76ed5e7753e3d
+              llvm_config="$(command -v llvm-config || command -v llvm-config-18 || command -v llvm-config-19 || true)"
+              if [[ -z "$llvm_config" ]]; then sudo apt-get update; sudo apt-get install -y llvm-dev; llvm_config="$(command -v llvm-config)"; fi
+              cmake -S . -B "$RUNNER_TEMP/llvm" -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR="$("$llvm_config" --cmakedir)"
+              cmake --build "$RUNNER_TEMP/llvm" --target oreslang-llvmc --parallel 2
+              bash scripts/test-counted-ready-native-guest.sh "$RUNNER_TEMP/llvm/oreslang-llvmc" "$corpus" | tee "$RUNNER_TEMP/guest.log"
+              grep -Fx LLVM_COUNTED_READY_NATIVE_GUEST_PASS "$RUNNER_TEMP/guest.log"
+              ;;
+            rust-select)
+              cargo build --locked --bin attoc
+              node tests/node-v2-select-plans-guest.mjs | tee "$RUNNER_TEMP/select.log"
+              test "$(grep -c '^REAL_WASM_SELECT_PLAN_PASS ' "$RUNNER_TEMP/select.log")" -eq 8
+              test "$(grep -c '^REAL_WASM_SELECT_PLAN_PANIC_' "$RUNNER_TEMP/select.log")" -eq 6
+              ;;
+            js-current)
+              node --test tests/proxy-mailbox-terminal-order.test.mjs tests/counted-select-ready-guest.test.mjs
+              npm run test:workers
+              CHROME_BIN=google-chrome npm run test:browser
+              ;;
+            wasm-current)
+              node --test tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-arena-quota-parity.test.mjs tests/pinned-continuation-gate.test.mjs tests/actor-io-adversarial-stress.test.mjs tests/proxy-mailbox-terminal-order.test.mjs
+              ;;
+            forge-current)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/reactor
+              for i in 1 2 3; do timeout 30 /tmp/reactor; done
+              cmake -S . -B /tmp/forge-build -DBUILD_TESTING=ON
+              cmake --build /tmp/forge-build --target proxy_mailbox_ticket_v1_test --parallel 2
+              ctest --test-dir /tmp/forge-build -R '^proxy_mailbox_ticket_v1_test$' --output-on-failure --no-tests=error
+              ;;
+            cranelift-current)
+              cargo test --locked actor_isolation_access_v1 -- --nocapture | tee "$RUNNER_TEMP/cranelift.log"
+              grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$RUNNER_TEMP/cranelift.log"
+              cargo test --locked --test continuation_admission --test actor_lifecycle_ready_native_denial
+              ;;
+            atto-current)
+              node --test tests/hybrid-actor-memory-bootstrap-v1.test.mjs
+              ;;
+            hdl-current)
+              node --test tests/counted-select-admission.test.mjs tests/actor-isolation-access-v1.test.mjs tests/execution-domain-admission.test.mjs
+              ;;
+            realtime-current)
+              node --test tests/hybrid-actor-memory-realtime-admission.test.mjs
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
