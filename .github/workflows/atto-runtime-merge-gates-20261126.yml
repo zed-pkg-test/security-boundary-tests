@@ -1,0 +1,84 @@
+name: Atto runtime locality and current-main merge gates
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-merge-gates-20261126.yml']
+permissions: {}
+jobs:
+  exact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: java-locality
+            backend: java
+            head: '24b418d6428be78bbaaf1a8128e6e6cb2b2581ea'
+            tree: '7f40a54286ca60bbd4327979a73c475b8c21b0eb'
+          - scope: java-nio
+            backend: java
+            head: '90803986de3f79b7575485c76d40e10cefa8a8c6'
+            tree: '28f928faa85b6346eac6fbb85918255ec534dae3'
+          - scope: java-control
+            backend: java
+            head: 'cfd30737e528d204c72f4047ccc9bbac39209e4f'
+            tree: '8182d9ece345ba9c020122fc390b6c2eaddc0201'
+          - scope: forge
+            backend: forge
+            head: '38d3f6a64d3d6fc7c3677c96c1d62220ca94da22'
+            tree: '895908341d1c364f0844b6065e9f70fc8da8f698'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate public exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute actual focused runtime tests and build integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          if [[ "$BACKEND" == java ]]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            TESTS='LocalityCarrierPoolTest,OresSchedulerTest,OresSchedulerContinuationLocalityTest,OresSchedulerCancelCloseRaceTest,ActorExecutionContextTest,ActorHeapIncarnationTest,ActorHeapPlacementGuardTest,LogicalStackQuotaTest,ActorSupervisorControlConservationTest,NioReadinessGroupTest,OresVMNioReadinessLifecycleTest'
+            if [[ "$SCOPE" == java-control ]]; then TESTS="$TESTS,ActorSupervisorControlAtomicTransferTest,ActorSupervisorControlCounterSaturationTest"; fi
+            mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+            IFS=, read -ra classes <<< "$TESTS"
+            for class in "${classes[@]}"; do
+              report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+              test -n "$report"
+              grep -Eq 'tests="[1-9][0-9]*"' "$report"
+              grep -Eq 'failures="0"' "$report"
+              grep -Eq 'errors="0"' "$report"
+              grep -Eq 'skipped="0"' "$report"
+            done
+            for round in 1 2 3; do
+              mvn -B -ntp -Dtest=OresSchedulerContinuationLocalityTest -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true surefire:test
+              echo "LOCALITY_STRESS_ROUND_$round"
+            done
+          else
+            g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/shared-reactor-check
+            timeout 30 /tmp/shared-reactor-check
+            cmake -S . -B /tmp/forge-build -DBUILD_TESTING=ON
+            cmake --build /tmp/forge-build --target ores-shared-reactor-pool-test --parallel 2
+            ctest --test-dir /tmp/forge-build -R '^shared_reactor_pool_host$' --output-on-failure --no-tests=error
+          fi
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
