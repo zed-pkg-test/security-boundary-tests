@@ -1,0 +1,98 @@
+name: Exact public Cranelift and Forge compiler integration
+on:
+  push:
+    branches: [speed-audit/atto-cranelift-forge-exact-20261126]
+    paths: ['.github/workflows/atto-cranelift-forge-exact.yml']
+permissions: {}
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Verify exact public source commit and root tree
+        run: |
+          set -euo pipefail
+          git init source
+          GIT_TERMINAL_PROMPT=0 git -C source -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.cranelift.git 1a08606f9d16df2c774eaa0f4c16bbbdba94c0ec
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 1a08606f9d16df2c774eaa0f4c16bbbdba94c0ec
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = 124a48405a8a4a8e4b09d38200489ac9748b8f00
+          test "$(git -C source write-tree)" = 124a48405a8a4a8e4b09d38200489ac9748b8f00
+          test -z "$(git -C source status --porcelain)"
+          git -C source rev-parse HEAD 'HEAD^{tree}'
+      - name: Execute full native compiler tests, formatting and strict lint
+        working-directory: source
+        run: |
+          set -euo pipefail
+          cargo test --locked --all-targets
+          cargo test --locked --bin orescranelift incremental_object_tests::exact_native_object_reuse -- --nocapture
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+  forge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Verify exact public source head and tree
+        run: |
+          set -euo pipefail
+          git init source
+          GIT_TERMINAL_PROMPT=0 git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.forge.git e17fddfa40a866a9c67c6c78ebcc2e2234191e4f
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = e17fddfa40a866a9c67c6c78ebcc2e2234191e4f
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = ccebba00c2e37ced5f7d6ff45131fd840fe6881c
+          test "$(git -C source write-tree)" = ccebba00c2e37ced5f7d6ff45131fd840fe6881c
+          git -C source rev-parse HEAD 'HEAD^{tree}'
+      - name: Execute actual native incremental assembly and cache tests
+        working-directory: source
+        run: |
+          set -eu
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp tests/incremental_session.cpp -o /tmp/atto-forge-session
+          /tmp/atto-forge-session /tmp/atto-forge-cold.s /tmp/atto-forge-edit.s
+          printf '%s\n' '#include <stdint.h>' 'extern int64_t oresforge_entry(int64_t);' 'int main(void){return (int)oresforge_entry(41);}' > /tmp/atto-forge-host.c
+          for name in cold edit; do
+            cc /tmp/atto-forge-host.c /tmp/atto-forge-$name.s -o /tmp/atto-forge-$name
+            rc=0; /tmp/atto-forge-$name || rc=$?
+            if [ "$name" = cold ]; then test "$rc" = 42; else test "$rc" = 43; fi
+          done
+          echo INCREMENTAL_FORGE_NATIVE_42_43
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp tests/compiler_cache_envelope.cpp -lcrypto -o /tmp/atto-forge-envelope
+          /tmp/atto-forge-envelope
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp tests/persistent_assembly.cpp -lcrypto -o /tmp/atto-forge-persistent
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          compiler="$(sha256sum /tmp/atto-forge-persistent | cut -d' ' -f1)"
+          for lane in cold warm edit; do
+            /tmp/atto-forge-persistent "$work" "$lane" "$compiler" "$work/$lane.s"
+            cc /tmp/atto-forge-host.c "$work/$lane.s" -o "$work/$lane"
+            rc=0; "$work/$lane" || rc=$?
+            if [ "$lane" = edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+            echo "PERSISTENT_FORGE_NATIVE|$lane|$rc"
+          done
+          cmp "$work/cold.s" "$work/warm.s"
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp compiler/persistent_assembly.cpp tests/persistent_assembly_api.cpp -lcrypto -o /tmp/atto-forge-api
+          mkdir -m 700 "$work/api"
+          compiler="$(sha256sum /tmp/atto-forge-api | cut -d' ' -f1)"
+          for lane in cold warm edit; do
+            /tmp/atto-forge-api "$work/api" "$lane" "$compiler" "$work/api-$lane.s"
+            cc /tmp/atto-forge-host.c "$work/api-$lane.s" -o "$work/api-$lane"
+            rc=0; "$work/api-$lane" || rc=$?
+            if [ "$lane" = edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+            echo "FORGE_API_NATIVE|$lane|$rc"
+          done
+          cmp "$work/api-cold.s" "$work/api-warm.s"
+          for exe in /tmp/atto-forge-cold /tmp/atto-forge-edit "$work/cold" "$work/warm" "$work/edit" "$work/api-cold" "$work/api-warm" "$work/api-edit"; do
+            readelf -W -l "$exe" | awk '$1 == "GNU_STACK" { seen++; if ($7 != "RW") bad=1 } END { exit !(seen==1 && !bad) }'
+          done
+          echo 'FORGE_NATIVE_NONEXEC_STACK=8_VERIFIED'
+          c++ -std=c++20 -I. compiler/frontend.cpp compiler/ir.cpp codegen/native.cpp compiler/cache_envelope.cpp compiler/persistent_assembly.cpp tests/persistent_namespace_provider.cpp -lcrypto -o "$work/provider"
+          mkdir -m 700 "$work/provider-cache"
+          compiler="$(sha256sum "$work/provider" | cut -d' ' -f1)"
+          printf '%s\n' '#include <stdint.h>' 'extern int64_t oresforge_entry(int64_t,int64_t);' 'int main(void){return (int)oresforge_entry(5,8);}' > "$work/provider.c"
+          for lane in cold warm edit; do
+            "$work/provider" "$work/provider-cache" "$lane" "$compiler" "$work/provider-$lane.s"
+            cc "$work/provider.c" "$work/provider-$lane.s" -o "$work/provider-$lane"
+            rc=0; "$work/provider-$lane" || rc=$?
+            if [ "$lane" = edit ]; then test "$rc" = 43; else test "$rc" = 42; fi
+            echo "FORGE_PROVIDER_NATIVE|$lane|$rc"
+          done
+          cmp "$work/provider-cold.s" "$work/provider-warm.s"
