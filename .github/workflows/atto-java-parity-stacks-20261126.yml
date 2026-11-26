@@ -1,0 +1,90 @@
+name: Atto Java ownership primitive and actor stack verification
+on:
+  push:
+    branches: [validation/atto-java-parity-wave-20261126]
+    paths: ['.github/workflows/atto-java-parity-stacks-20261126.yml']
+permissions: {}
+jobs:
+  exact-java:
+    name: PR ${{ matrix.pr }} focused JVM tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - pr: 1902
+            head: 'b485ce589e37537a1a91ba862ccec53159e3db5d'
+            tree: '834ee3c429a79c569dd99eb86ab804959fc9932a'
+            tests: 'InferredScalarReadLoanLifetimeTest,InferredUnusedLoanLifetimeTest,BorrowCastLifetimeRegressionTest,InvocationLoanLifetimeRegressionTest,OwnershipSuspensionAuditTest'
+          - pr: 1864
+            head: 'a6b95cfd25dc989b4fa7a4f14eeaa0c6f6c6f192'
+            tree: '26d5503358cf1f14e63c4f8899b1e842a439eed8'
+            tests: 'RealtimePrimitiveValueMatchTest,RealtimePrimitiveValueConditionalTest'
+          - pr: 1896
+            head: '25da1d200b1edd110e88ce9eb8e189cd352525f6'
+            tree: '418e0a7cab25d543e49f13c552f945ab17668bc5'
+            tests: 'GuestClassGraphLeaseTest,DerivedCopyPlanGuestTest'
+          - pr: 1886
+            head: '89807f023bd98e6870493404e5bd02d50e8c7d4f'
+            tree: 'af2af474828a0aaf468052c33b60e3aa67e1ba68'
+            tests: 'GuestClassGraphLeaseTest,DerivedCopyPlanGuestTest'
+          - pr: 1878
+            head: 'acd82e4b7b4f44608fbbabab7511c2d1c6167f31'
+            tree: 'e6476699771d91981c5f62ec5e43f46ad9bd8ca6'
+            tests: 'CopyPolicyCompilerTest,DerivedCopyPlanGuestTest'
+          - pr: 1873
+            head: 'ba47c65f86d61c7d2865299635315d01bfad868c'
+            tree: '156e5431b6e667b458f15f9aa7c333882db1921e'
+            tests: 'AffineDropPlanV1Test,AffineDropPlanVerifierV1Test'
+          - pr: 1906
+            head: '9985da2019896583654c615f4d4a30ec36ab9463'
+            tree: 'ebf8dbafec10c0658cd5e3bb45e72c7e4f267ad2'
+            tests: 'VirtualActorSupervisorDirectoryTest'
+    env:
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+      TESTS: ${{ matrix.tests }}
+      PR_NUMBER: ${{ matrix.pr }}
+    steps:
+      - name: Fetch and verify complete public Git tree (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          actual_head="$(git -C source rev-parse HEAD)"
+          actual_tree="$(git -C source rev-parse 'HEAD^{tree}')"
+          index_tree="$(git -C source write-tree)"
+          printf 'OBSERVED_HEAD_TREE|%s|expected=%s,%s|actual=%s,%s,%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$actual_head" "$actual_tree" "$index_tree"
+          test "$actual_head" = "$EXPECTED_HEAD"
+          test "$actual_tree" = "$EXPECTED_TREE"
+          test "$index_tree" = "$EXPECTED_TREE"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          printf 'EXACT_HEAD_TREE|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - name: Compile and execute relevant JUnit and guest tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+          IFS=, read -ra classes <<< "$TESTS"
+          for class in "${classes[@]}"; do
+            report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+            test -n "$report"
+            grep -Eq 'tests="[1-9][0-9]*"' "$report"
+            grep -Eq 'failures="0"' "$report"
+            grep -Eq 'errors="0"' "$report"
+            grep -Eq 'skipped="0"' "$report"
+          done
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'FOCUSED_JVM_PASS|%s|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$TESTS"
