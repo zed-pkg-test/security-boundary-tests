@@ -1,0 +1,76 @@
+name: Atto runtime exact-tree reactor and actor stack gate
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-java-rs-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: java
+            head: '8c850e04a7e63f4421515594d0500572c3b2a87e'
+            tree: '594dcf99ddad0b0e1bf947aeb4f6c8666c5c8417'
+          - backend: rs
+            head: '667a4e967a4f4fdc875ef1ae42f1cdc742090074'
+            tree: '403df2a311e012f4a74371fe350654fe1d46c66c'
+    env:
+      BACKEND: ${{ matrix.backend }}
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+    steps:
+      - name: Fetch public exact head and verify root tree and index
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$EXPECTED_TREE"
+          test "$(git -C source write-tree)" = "$EXPECTED_TREE"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          printf 'EXACT_HEAD_TREE|%s|%s|%s\n' "$BACKEND" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - name: Java actual runtime reactor scheduler and actor host tests
+        if: matrix.backend == 'java'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          TESTS='NioReadinessGroupTest,OresVMNioReadinessLifecycleTest,OresSchedulerTest,OresSchedulerContinuationLocalityTest,OresSchedulerCancelCloseRaceTest,ActorExecutionContextTest,ActorHeapIncarnationTest,ActorHeapPlacementGuardTest,LogicalStackQuotaTest,ActorSupervisorControlConservationTest'
+          mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+          IFS=, read -ra classes <<< "$TESTS"
+          for class in "${classes[@]}"; do
+            report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+            test -n "$report"
+            grep -Eq 'tests="[1-9][0-9]*"' "$report"
+            grep -Eq 'failures="0"' "$report"
+            grep -Eq 'errors="0"' "$report"
+            grep -Eq 'skipped="0"' "$report"
+            grep '<testsuite ' "$report"
+          done
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'JAVA_RUNTIME_HOST_PASS|%s|%s\n' "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - name: Rust static actor-stack admission tests
+        if: matrix.backend == 'rs'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          rustc --version
+          cargo test --locked --lib 2>&1 | tee "$RUNNER_TEMP/atto-rust-tests.log"
+          grep -E 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$RUNNER_TEMP/atto-rust-tests.log"
+          test "$(grep -Ec 'actor_stack_bound::.* \.\.\. ok' "$RUNNER_TEMP/atto-rust-tests.log")" -ge 10
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'RS_STATIC_ADMISSION_PASS|%s|%s\n' "$EXPECTED_HEAD" "$EXPECTED_TREE"
