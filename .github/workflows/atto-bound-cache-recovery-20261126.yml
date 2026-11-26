@@ -201,6 +201,7 @@ jobs:
           test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/rtl-session.mjs)" = 5e4b71d3147852f3bad586a90cb2ea2a80a5f5ef
           test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/checked-rtl-session.mjs)" = 95381098b74cf5511f70f76ea10258699c4b5b77
           test "$(git -C fixture hash-object fixtures/package-namespace-v3/adapters/hdl/checked-rtl-session.test.mjs)" = 07834a2cbfd1cca364bc4aecda3527589ae27f05
+          test "$(git -C source hash-object tests/checked-namespace-provider.test.mjs)" = a72e42a295ca843e45a8ae2b216a5ed4a5981377
       - name: Verify exact HDL module syntax and reference checks
         shell: bash
         run: |
@@ -208,7 +209,10 @@ jobs:
           cd source
           node --check src/compiler.mjs
           node --test --test-reporter=tap tests/checked-namespace-provider.test.mjs | tee /tmp/hdl-reference.tap
-          grep -E '^# pass 3
+          grep -E '^# tests 3$' /tmp/hdl-reference.tap
+          grep -E '^# pass 3$' /tmp/hdl-reference.tap
+          grep -E '^# skipped 0$' /tmp/hdl-reference.tap
+      - name: Provision RTL simulation
         shell: bash
         run: |
           set -euo pipefail
@@ -237,27 +241,9 @@ jobs:
           node --test --test-reporter=tap "$ATTO_V3_FIXTURE/adapters/hdl/checked-rtl-session.test.mjs" | tee /tmp/atto-hdl-checked.tap
           grep -F 'V3_HDL_PARAMETERIZED|' /tmp/atto-hdl-checked.tap
           grep -F 'HDL_CHECKED_BOUNDARY|' /tmp/atto-hdl-checked.tap
-          grep -E '^# tests 2
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
- /tmp/atto-hdl-checked.tap
-          grep -E '^# pass 2
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
- /tmp/atto-hdl-checked.tap
-          grep -E '^# skipped 0
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          node --test --test-reporter=tap tests/compiler.test.mjs tests/incremental-session.test.mjs tests/compiler-cache-envelope.test.mjs tests/compiler-artifact-store.test.mjs tests/compile-cached-scalar-unit.test.mjs
- /tmp/atto-hdl-checked.tap
+          grep -E '^# tests 2$' /tmp/atto-hdl-checked.tap
+          grep -E '^# pass 2$' /tmp/atto-hdl-checked.tap
+          grep -E '^# skipped 0$' /tmp/atto-hdl-checked.tap
       - name: Existing compiler and persistent cache regressions
         shell: bash
         run: |
