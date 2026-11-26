@@ -1,0 +1,106 @@
+name: Atto Java exact public parity wave
+on:
+  push:
+    branches: [validation/atto-java-parity-wave-20261126]
+    paths: ['.github/workflows/atto-java-parity-wave-20261126.yml']
+permissions: {}
+jobs:
+  exact-java:
+    name: PR ${{ matrix.pr }} focused JVM tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - pr: 1930
+            head: '3622e7adb0ee48189a65b94e334ab8858aaa343f'
+            tree: '71cdfa48ef351b4617f195d10902e6e054fd4384'
+            tests: 'TypedDefaultSelectGuestTest,CountedSelectTaskCursorTest'
+          - pr: 1931
+            head: '3d2042f7c9f61fe0cfcf512eb0f656074ed31996'
+            tree: 'aa1618767ad68ab3767433a7da59b4b33d0a41'
+            tests: 'TypedDefaultSelectGuestTest,CountedSelectTaskCursorTest'
+          - pr: 1932
+            head: 'ca62d36a7e427521a4e2ab36420ae7924dd83e50'
+            tree: 'bdb30041550df9514c48b69bb1e0787baea2b18f'
+            tests: 'TypedDefaultSelectGuestTest,CountedSelectTaskCursorTest'
+          - pr: 1933
+            head: 'ac450a8852d74e0379f492497f33534e1cb4c2bf'
+            tree: 'd3b3256f86b0ac38b522c99bffff6c4235e26489'
+            tests: 'IncrementalPackageLayoutIsolationTest,PinnedNamespaceInventoryTest,PackageNamespaceImportSyntaxTest'
+          - pr: 1934
+            head: '22017622faf7ebc1cdd77f2cea150865d5df311c'
+            tree: '341133951eb02c9f9fc4a37392ccf65db390e712'
+            tests: 'PinnedNamespaceInventoryTest,IncrementalPackageLayoutIsolationTest,PackageNamespaceImportSyntaxTest'
+          - pr: 1922
+            head: '883ef24b62d5dd3cdae04468520eb1ef4c92abad'
+            tree: '05c115b83772cb2c89b42f25a7076e03bb43138d'
+            tests: 'ParserTest,StrictAttoNumericFlowTest,StrictAttoPrimitiveBytecodeTest'
+          - pr: 1924
+            head: '22e18de56f015c367414ff5c8dcec4f6db8fc710'
+            tree: '82bdc0eae42eeb70deb36493db9f93ae9d8809ae'
+            tests: 'ParserTest,StrictAttoNumericFlowTest,StrictAttoPrimitiveBytecodeTest'
+          - pr: 1925
+            head: 'da2daa83eefddd665dc9342540ff4ff30682ece3'
+            tree: 'dd1e596e96499449f336f15e529227bc3162507c'
+            tests: 'StrictI64ArithmeticProofTest,ParserTest'
+          - pr: 1928
+            head: '0932e437d5a961692fb0eb8ff37dd984c50e0fac'
+            tree: 'ffedcd7a1c9fbc35142b1e1da15b1e665be9b911'
+            tests: 'StrictI64ArithmeticProofTest,ParserTest'
+          - pr: 1916
+            head: '0161fc2220689a9d27bb4b06087dd93378314134'
+            tree: '87df635b29031b67d3f197fc9c63b4a60ec54c6e'
+            tests: 'StrictI64ArithmeticProofTest,ParserTest'
+          - pr: 1937
+            head: 'c1a8080fc1293b0d038ce5e39dbcf9ea9667adf1'
+            tree: '034f55b2619e43003e232edcb0f01731f262f608'
+            tests: 'AttoXoCheckedDebitTest'
+          - pr: 1901
+            head: '88ec26b773dadc0042648b3a0811d0d5bdfa8877'
+            tree: 'e8a45ca5eb9eacb714cf25cef4f2b75a832c08e8'
+            tests: 'BangExceptionKeywordLexerTest,BangKeywordWhitespaceTest,OwnershipBangAliasesTest'
+    env:
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+      TESTS: ${{ matrix.tests }}
+      PR_NUMBER: ${{ matrix.pr }}
+    steps:
+      - name: Fetch and verify complete public Git tree (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git -C source rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git -C source write-tree)" = "$EXPECTED_TREE"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          printf 'EXACT_HEAD_TREE|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - name: Compile and execute relevant JUnit and guest tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+          IFS=, read -ra classes <<< "$TESTS"
+          for class in "${classes[@]}"; do
+            report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+            test -n "$report"
+            grep -Eq 'tests="[1-9][0-9]*"' "$report"
+            grep -Eq 'failures="0"' "$report"
+            grep -Eq 'errors="0"' "$report"
+            grep -Eq 'skipped="0"' "$report"
+          done
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'FOCUSED_JVM_PASS|%s|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$TESTS"
