@@ -1,0 +1,102 @@
+name: Remaining target exact seed native and RTL execution
+on:
+  pull_request:
+    paths: ['.github/workflows/remaining-target-profile-audit.yml']
+permissions:
+  contents: read
+jobs:
+  profiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: atto
+            head: 9494c122bd0aad50889718a6053ca034e98b001c
+          - target: hdl
+            head: 748752b34207ed7997a223e2fb4dcb26760cf4d2
+          - target: realtime
+            head: 9552cb80164e8c544fb4a98fd8dcb5beb529d022
+    env:
+      TARGET: ${{ matrix.target }}
+      HEAD_SHA: ${{ matrix.head }}
+    steps:
+      - name: Authenticate source tree and exact dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_exact() {
+            git init -q "$3"
+            git -C "$3" fetch --no-tags --depth=1 "https://github.com/$1.git" "$2"
+            git -C "$3" checkout --detach FETCH_HEAD
+            test "$(git -C "$3" rev-parse HEAD)" = "$2"
+            tree="$(git -C "$3" rev-parse HEAD^{tree})"
+            test "$(git -C "$3" write-tree)" = "$tree"
+            test -z "$(git -C "$3" status --porcelain --untracked-files=all)"
+            printf 'EXACT_SOURCE %s %s %s\n' "$1" "$2" "$tree"
+          }
+          fetch_exact "atto-lang/atto-source.$TARGET" "$HEAD_SHA" compiler
+          case "$TARGET" in
+            atto)
+              test "$(git -C compiler rev-parse HEAD:src/scalar_codegen.atto)" = bbb94440713d65eaaf9956ea8cfe6bd4d4432e50
+              test "$(git -C compiler rev-parse HEAD:scripts/stage0_native_gate.mjs)" = a1694128c808946ffcd2465fe42036004ed1229c
+              fetch_exact atto-lang/atto-source.llvm 847b0ddfbd6d630f60e27354511dee09988c6211 bootstrap
+              test "$(git -C bootstrap rev-parse HEAD^{tree})" = c915633f41d5cecf576e25cef54187cd44601c74;;
+            realtime)
+              test "$(git -C compiler rev-parse HEAD:src/strict_quantity_seed.cpp)" = 9a698a91397baceae256c48412844a099f784f60
+              test "$(git -C compiler rev-parse HEAD:tests/strict_quantity_native_gate.mjs)" = 5a339d4fc19e2e4f1b8bf20c678a1edacc0654cf
+              fetch_exact atto-lang/atto-source.forge aa57a912ac9992e3ee7a6d7d370edebdec85a230 bootstrap
+              test "$(git -C bootstrap rev-parse HEAD^{tree})" = 16d4f0ad052ebc4be4a24321a1842ba2f94b4ea6;;
+            hdl)
+              test "$(git -C compiler rev-parse HEAD:tests/strict_closed_scalar.test.mjs)" = b1718a8be1b0ea195a12836e7fe012d8a1146dcd
+              test "$(git -C compiler rev-parse HEAD:src/closed_quantity.mjs)" = b98a8b3f9978b1e10f0fed06e069a8bbb5d4560d;;
+          esac
+      - name: Execute real target artifacts and independent rejection controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            atto)
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq clang-19 llvm-19-dev lld-19 libssl-dev libclang-rt-19-dev
+              cmake -S bootstrap -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLLVM_DIR=/usr/lib/llvm-19/lib/cmake/llvm -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+              cmake --build build --target oreslang-llvmc -j2
+              node compiler/scripts/stage0_native_gate.mjs --compiler="$PWD/build/oreslang-llvmc" --compiler-sha256="$(sha256sum build/oreslang-llvmc | cut -d' ' -f1)" --source="$PWD/compiler/src/scalar_codegen.atto" --source-blob=bbb94440713d65eaaf9956ea8cfe6bd4d4432e50 --clang=clang-19 --compiler-source-commit=847b0ddfbd6d630f60e27354511dee09988c6211 --quantity-seed=1 --contract-seed=1;;
+            realtime)
+              c++ -std=c++20 -Wall -Wextra -O2 -Ibootstrap/include compiler/src/strict_quantity_seed.cpp -o rt-compiler
+              node compiler/tests/strict_quantity_native_gate.mjs "$PWD/rt-compiler";;
+            hdl)
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq iverilog yosys
+              (cd compiler && node --test tests/strict_closed_scalar.test.mjs)
+              node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import {spawnSync} from 'node:child_process';
+          const pre='define dimension Time; define unit Second: Time; type Bounded = int where self >= 1 and self <= 42;';
+          const cli='compiler/bin/oreslang-hdl.mjs';
+          function run(c,a){const r=spawnSync(c,a,{encoding:'utf8',timeout:30000});if(r.error)throw r.error;assert.equal(r.signal,null);return r;}
+          function ok(c,a){const r=run(c,a);assert.equal(r.status,0,r.stdout+r.stderr);return r.stdout;}
+          const inputs=[['84 / 2',42n],['42 as Bounded',42n],['-9223372036854775808',-(1n<<63n)],['9223372036854775807',(1n<<63n)-1n]];
+          for(const [i,[expr,want]] of inputs.entries()){
+            const s='guest'+i+'.atto', rtl='guest'+i+'.sv', net='net'+i+'.v',tb='tb'+i+'.sv';
+            fs.writeFileSync(s,pre+' pub fnc main() -> int { return '+expr+'; }');
+            ok('node',[cli,'--verify=strict',s,rtl]);
+            fs.writeFileSync(tb,'module tb; wire signed [63:0] out_result; ores_main dut(.out_result(out_result)); initial begin #1; $display("%0d",out_result); $finish; end endmodule\n');
+            ok('iverilog',['-g2012','-s','tb','-o','guest.sim',rtl,tb]);
+            assert.equal(ok('vvp',['guest.sim']).split('\n')[0],want.toString());
+            ok('yosys',['-Q','-T','-p','read_verilog -sv '+rtl+'; synth -top ores_main; write_verilog -noattr '+net]);
+            ok('iverilog',['-g2012','-s','tb','-o','guest.net.sim',net,tb]);
+            assert.equal(ok('vvp',['guest.net.sim']).split('\n')[0],want.toString());
+            console.log('HDL_RTL_NETLIST_PASS',expr,want.toString());
+          }
+          for(const [i,expr] of ['42/0','-9223372036854775808/-1','9223372036854775807+1','43 as Bounded','(9223372036854775807+1)*0'].entries()){
+            const s='bad'+i+'.atto',rtl='bad'+i+'.sv';
+            fs.writeFileSync(s,pre+' pub fnc main() -> int { return '+expr+'; }');
+            const r=run('node',[cli,'--verify=strict',s,rtl]);assert.equal(r.status,1);assert.match(r.stderr,/E_VERIFY_UNPROVEN/);assert.ok(!fs.existsSync(rtl));console.log('HDL_DENY_PASS',expr);
+          }
+          console.log('HDL_CLOSED_CENSUS 4 RTL + 4 netlist guests; 5 artifact-free denials');
+          JS
+              ;;
+          esac
