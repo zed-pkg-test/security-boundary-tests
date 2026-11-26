@@ -1,0 +1,79 @@
+name: Runtime parity - exact current-main native reclamation and repaired guest probes
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-main-reclamation-20261126.yml']
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scope: llvm-main
+            backend: llvm
+            head: 'd1919ab87df9a103283eb5902dfcf87e7b77204d'
+            tree: '7a10290dd9980b4c733d80bed8712d8b15100dd7'
+          - scope: java-proxy
+            backend: java
+            head: '6f5a93739d10530a9a9334d53308138ad967a5e0'
+            tree: '3af3b06d3aec5480fbda1912f66085c91a58d9dd'
+          - scope: rs-fair
+            backend: rs
+            head: '22e4f6fec8bbbe401f9f5c0c47e6faecf5d73144'
+            tree: 'a7e2505eb0ae5ddc17706a8d3cfc085743bc5475'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate public exact source head and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute native and actual guest tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            llvm-main)
+              units=(NativeActorLogicalFramesV1 NativeActorScheduler NativeOresVM NativeActorFuture)
+              files=()
+              for u in "${units[@]}"; do files+=("src/main/cpp/oreslang/runtime/$u.c"); done
+              gcc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -Isrc/main/cpp tests/native_actor_frame_quota_vm_supervised_test.c "${files[@]}" -o /tmp/vm-reuse
+              timeout 60 /tmp/vm-reuse
+              timeout 900 /tmp/vm-reuse --reuse
+              gcc -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc/main/cpp tests/native_actor_frame_quota_vm_supervised_test.c "${files[@]}" -o /tmp/vm-reuse-san
+              timeout 60 /tmp/vm-reuse-san
+              timeout 900 /tmp/vm-reuse-san --reuse
+              cmake -S . -B "$RUNNER_TEMP/llvm-host" -DATTO_ACTOR_LOGICAL_FRAMES_HOST_ONLY=ON -DBUILD_TESTING=ON
+              cmake --build "$RUNNER_TEMP/llvm-host" --target atto-native-vm-supervised-quota-host-test --parallel 2
+              ctest --test-dir "$RUNNER_TEMP/llvm-host" -R '^native_vm_(registered_actor_frame_quota_supervisor|supervised_leaf_million_reuse)$' --output-on-failure --no-tests=error
+              ;;
+            java-proxy)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              ATTO_EXPECTED_HEAD_SHA="$HEAD_SHA" bash ci/m10/verify-remote-actor-ipc-jvm.sh
+              ;;
+            rs-fair)
+              cargo build --locked --bin attoc
+              node tests/node-v2-select-plans-guest.mjs
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
