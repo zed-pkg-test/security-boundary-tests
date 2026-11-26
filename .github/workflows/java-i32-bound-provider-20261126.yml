@@ -1,0 +1,39 @@
+name: Java exact persistent i32 provider
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/java-i32-bound-provider-20261126.yml']
+permissions: {}
+jobs:
+  java-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Exact public compiler tree and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git f6e66228567c3170feac6f62ce116bcd16d2d860
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = f6e66228567c3170feac6f62ce116bcd16d2d860
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/PersistentPrimitiveClassfileSession.java)" = 330a2c083077b6eb6c93d64793fc25f50f4a95ab
+          test "$(git -C source hash-object src/test/java/dev/oreslang/compiler/PersistentClassfileCacheTest.java)" = a4aba7dd3559b5fffe5dc89c574067ccf19f3921
+          echo "EXACT_JAVA_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - name: Actual checked compiler, process restart and namespace regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          cd source
+          java -version
+          mvn -B -Dtest=PersistentClassfileCacheTest,PinnedNamespaceInventoryTest,IncrementalPackageLayoutIsolationTest,PackageNamespaceImportSyntaxTest -Dsurefire.failIfNoSpecifiedTests=true test | tee /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_PROVIDER|' /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_CHILD|' /tmp/java-bound.log
+          grep -F 'BUILD SUCCESS' /tmp/java-bound.log
+          git diff --exit-code
