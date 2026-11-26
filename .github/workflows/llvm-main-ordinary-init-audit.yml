@@ -1,0 +1,129 @@
+name: LLVM main integration strict and ordinary guest audit
+on:
+  pull_request:
+    paths: ['.github/workflows/llvm-main-ordinary-init-audit.yml']
+permissions:
+  contents: read
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      TARGET: llvm
+      REPO: atto-source.llvm
+      HEAD_SHA: a1eeaf3d5a2503d2d38ad7b4be7b7d2af01f22b0
+    steps:
+      - name: Authenticate exact source and corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_exact() {
+            git init -q "$4"
+            git -C "$4" fetch --no-tags --depth=1 "https://github.com/$1.git" "$2"
+            git -C "$4" checkout --detach FETCH_HEAD
+            test "$(git -C "$4" rev-parse HEAD)" = "$2"
+            test "$(git -C "$4" rev-parse HEAD^{tree})" = "$3"
+            test "$(git -C "$4" write-tree)" = "$3"
+            test -z "$(git -C "$4" status --porcelain --untracked-files=all)"
+            printf 'EXACT_SOURCE %s %s %s\n' "$1" "$2" "$3"
+          }
+          git init -q compiler
+          git -C compiler fetch --no-tags --depth=2 "https://github.com/atto-lang/$REPO.git" "$HEAD_SHA"
+          git -C compiler checkout --detach FETCH_HEAD
+          test "$(git -C compiler rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C compiler rev-parse HEAD^)" = 4a75d3760071f686003766d3624b909eb8eb3251
+          tree="$(git -C compiler rev-parse HEAD^{tree})"
+          test "$(git -C compiler write-tree)" = "$tree"
+          test -z "$(git -C compiler status --porcelain --untracked-files=all)"
+          test "$(git -C compiler diff --name-only HEAD^ HEAD)" = src/main/cpp/oreslang/frontend/Parser.cpp
+          test "$(git -C compiler rev-parse HEAD:src/main/cpp/oreslang/frontend/Parser.cpp)" = 187f4d13590ad8c2817a2a8fe37e766f7b94fa54
+          printf 'EXACT_SOURCE atto-lang/%s %s %s\n' "$REPO" "$HEAD_SHA" "$tree"
+          fetch_exact atto-lang/atto-platform-conformance 82d4163592175e925dbe246d0e1301ce9758ae1f 73c1ca077ae45e79f26098ac387663ce9ead7081 corpus
+          fetch_exact atto-lang/atto-platform-conformance 21122d3fe4a13efca4ab6df62f824b8b2d487333 c2efd1c00937413ee784641711941ef83da5cc28 strict-corpus
+          if [[ "$TARGET" == wasm ]]; then
+            fetch_exact atto-lang/atto-source.wasm cab4b53a3642c3dea1e1782013a2cb7a245708e3 64583489c29090baf2ec97a070aace9df68b6d8f bridge
+          fi
+      - name: Build compiler and execute independent corpora
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            rs)
+              rustup toolchain install 1.85.1 --profile minimal
+              cargo +1.85.1 build --manifest-path compiler/Cargo.toml --locked --release --bin attoc
+              args=(rs compiler/target/release/attoc);;
+            wasm)
+              rustup toolchain install 1.85.1 --profile minimal --target wasm32-unknown-unknown
+              cargo +1.85.1 build --locked --release --lib --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+              artifact=compiler/target/wasm32-unknown-unknown/release/atto_compiler.wasm
+              digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+              args=(wasm "$artifact" bridge "$digest");;
+            js) args=(js compiler);;
+            java)
+              export JAVA_HOME="${JAVA_HOME_21_X64:?runner JDK21 missing}"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              java -version
+              args=(java compiler);;
+            llvm)
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq clang-19 llvm-19-dev lld-19 libssl-dev libclang-rt-19-dev
+              cmake -S compiler -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLLVM_DIR=/usr/lib/llvm-19/lib/cmake/llvm -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+              cmake --build build --target oreslang-llvmc -j2
+              args=(llvm build/oreslang-llvmc clang-19 compiler/src/main/cpp/oreslang/runtime/NativeStringRegion.c);;
+            net)
+              dotnet build compiler/compiler/Ores.Net.Compiler/Ores.Net.Compiler.csproj -c Release
+              driver="$(find "$PWD/compiler/compiler/Ores.Net.Compiler/bin/Release" -name oresnet.dll -type f | head -n1)"
+              test -n "$driver"
+              args=(net "$driver" compiler);;
+            forge)
+              cmake -S compiler -B build -DCMAKE_BUILD_TYPE=Release
+              cmake --build build --target forge_scalar -j2
+              args=(forge build/forge_scalar compiler/include);;
+            cranelift)
+              cargo build --locked --manifest-path compiler/Cargo.toml
+              args=(cranelift compiler/target/debug/orescranelift);;
+          esac
+          failures=0
+          for suite in original string-view-candidate; do
+            if ATTO_INIT_SUITE="$suite" node corpus/bin/verify-ordinary-explicit-initialization.mjs "${args[@]}"; then
+              echo CENSUS_SUITE_PASS "$TARGET" "$suite"
+            else
+              failures=$((failures+1))
+              echo CENSUS_SUITE_FAIL "$TARGET" "$suite"
+            fi
+          done
+          test "$failures" = 0
+      - name: Strict 150-case actual LLVM guest replay
+        if: success() || failure()
+        run: node strict-corpus/bin/verify-verified-core-strict-i64.mjs llvm build/oreslang-llvmc all clang-19
+      - name: Native nested delimiter ownership and type denials
+        if: success() || failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          driver="$PWD/build/oreslang-llvmc"
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          cd "$scratch"
+          for source in 'pub fnc main(): int { if true { return 42; } else { return 1; } }' 'pub fnc main(): int { if true do if true { return 42; } else { return 1; } fi return 2; }' 'pub fnc main(): int { if true { return 42; } else { return 1; } fi }' 'pub fnc main(): int { if true { if true { return 42; } else { return 2; } } else { return 1; } }'; do
+            printf '%s\n' "$source" > guest.atto
+            "$driver" guest.atto > guest.ll 2> err || { cat err; exit 1; }
+            for opt in 0 2; do
+              clang-19 "-O$opt" guest.ll -o guest
+              set +e
+              ./guest > out 2> err
+              rc=$?
+              set -e
+              test "$rc" = 42
+              test ! -s out
+              test ! -s err
+              echo LLVM_DELIMITER_GUEST_PASS O"$opt" "$source"
+            done
+          done
+          for source in 'pub fnc main(): int { if true do return 42; }' 'pub fnc main(): int { if 1 { return 42; } else { return 1; } }' 'pub fnc main(): int { if true { return 42; } else { return 1; } fi fi }' 'pub fnc main(): int { if true do if true { return 42; fi return 2; }' 'pub fnc main(): int { if true { if true { return 42; } } else { return 1; } }'; do
+            printf '%s\n' "$source" > guest.atto
+            if "$driver" guest.atto > bad.ll 2> err; then echo "unexpected acceptance: $source"; exit 1; fi
+            test ! -s bad.ll
+            test -s err
+            echo LLVM_DELIMITER_DENY_PASS "$source"
+          done
