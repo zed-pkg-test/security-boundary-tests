@@ -1,0 +1,53 @@
+name: Rust main-target exact integrated cache
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/rust-590-main-integration-20261126.yml']
+permissions: {}
+jobs:
+  registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify exact public compiler tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.rs.git 74dfc1f75a35e8e46d1c3203af98bdd413c6440f
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 74dfc1f75a35e8e46d1c3203af98bdd413c6440f
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object src/registry_namespace.rs)" = 04d7c30629bbc3069b86cf83bd55712e04bed551
+          test "$(git -C source hash-object tests/registry_namespace.rs)" = 0852077efdbbab8aa744b0be88a9a00c4efd0b94
+          test "$(git -C source hash-object tests/experimental_registry_cache.rs)" = ebf3776da46ff4aa4c507e7856e8229e9ed7a2cc
+          test "$(git -C source hash-object src/compiler_cache_registry.rs)" = 27b3407b39d309ccfa5326d1929fe23d356d1c64
+          test "$(git -C source hash-object src/experimental_incremental.rs)" = 672b473520303c37bbbc0a044cd335dd8be97ed7
+          echo "EXACT_RUST_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - name: Execute actual registry linker and persistent cache tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          rustc --version
+          node --version
+          cargo test --features experimental-incremental-cache --test registry_namespace --test experimental_registry_cache -- --nocapture | tee /tmp/registry-tests.log
+          grep -F 'REGISTRY_EXPLICIT_MEMBERSHIP|' /tmp/registry-tests.log
+          grep -F 'REGISTRY_LOCAL_SIBLING_CACHE|' /tmp/registry-tests.log
+          grep -F 'REGISTRY_BOUND_INPUT_CACHE|' /tmp/registry-tests.log
+          cargo test --features experimental-incremental-cache --lib registry_check_memo -- --nocapture
+      - name: Main-target compiler and secure cache regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo test --lib compiler_cache -- --nocapture
+          cargo test --lib compiler_artifact -- --nocapture
+          cargo test --lib secure_fs::tests:: -- --nocapture
+          cargo test --test package_resolver --test multihop_linker -- --nocapture
+          cargo check --no-default-features
+          cargo test --features experimental-incremental-cache --test experimental_incremental -- --nocapture
+          git diff --exit-code
