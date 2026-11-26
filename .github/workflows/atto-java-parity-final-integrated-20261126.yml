@@ -1,0 +1,78 @@
+name: Atto Java final integrated parity and baseline
+on:
+  push:
+    branches: [validation/atto-java-parity-wave-20261126]
+    paths: ['.github/workflows/atto-java-parity-final-integrated-20261126.yml']
+permissions: {}
+jobs:
+  exact-java:
+    name: PR ${{ matrix.pr }} focused JVM tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - pr: '1930'
+            head: 'edd9e2f9ad5bc5c5c5f6cca8e33c9f33507f038a'
+            tree: 'd9c73cf044d41fca384e2412447b28daefc0c2c6'
+            tests: 'TypedDefaultSelectGuestTest,CountedSelectTaskCursorTest'
+          - pr: '1931'
+            head: '5a69e22de53f0dde49d610e7965ba0e80994eca5'
+            tree: '83a0c36748520970c008b2a0e06be39cccd0164e'
+            tests: 'TypedDefaultSelectGuestTest,CountedSelectTaskCursorTest'
+          - pr: '1901'
+            head: '2f97bbb97057ff5ffef79dae1f8459bcc9699532'
+            tree: '76dde3a715690f19ee1cb782d6d638cf45c06431'
+            tests: 'BangExceptionKeywordLexerTest,BangKeywordWhitespaceTest,OwnershipBangAliasesTest,AttoXoCheckedDebitTest'
+          - pr: 'main-baseline'
+            head: '6c9b4e4096c350b3fcce9aa8f68a3bfb4709ca70'
+            tree: 'f9ded53a5147306a671e31b522c2c0a1b061f9d4'
+            tests: 'ParserTest'
+    env:
+      EXPECTED_HEAD: ${{ matrix.head }}
+      EXPECTED_TREE: ${{ matrix.tree }}
+      TESTS: ${{ matrix.tests }}
+      PR_NUMBER: ${{ matrix.pr }}
+    steps:
+      - name: Fetch and verify complete public Git tree (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git "$EXPECTED_HEAD"
+          git -C source checkout --detach FETCH_HEAD
+          actual_head="$(git -C source rev-parse HEAD)"
+          actual_tree="$(git -C source rev-parse 'HEAD^{tree}')"
+          index_tree="$(git -C source write-tree)"
+          printf 'OBSERVED_HEAD_TREE|%s|expected=%s,%s|actual=%s,%s,%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$actual_head" "$actual_tree" "$index_tree"
+          test "$actual_head" = "$EXPECTED_HEAD"
+          test "$actual_tree" = "$EXPECTED_TREE"
+          test "$index_tree" = "$EXPECTED_TREE"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          printf 'EXACT_HEAD_TREE|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE"
+      - name: Compile and execute relevant JUnit and guest tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+          IFS=, read -ra classes <<< "$TESTS"
+          for class in "${classes[@]}"; do
+            report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+            test -n "$report"
+            grep -Eq 'tests="[1-9][0-9]*"' "$report"
+            grep -Eq 'failures="0"' "$report"
+            grep -Eq 'errors="0"' "$report"
+            grep -Eq 'skipped="0"' "$report"
+          done
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'FOCUSED_JVM_PASS|%s|%s|%s|%s\n' "$PR_NUMBER" "$EXPECTED_HEAD" "$EXPECTED_TREE" "$TESTS"
