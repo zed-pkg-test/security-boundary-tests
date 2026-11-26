@@ -1,0 +1,43 @@
+name: Java exact persistent checked i64 provider
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/java-checked-i64-provider-20261126.yml']
+permissions: {}
+jobs:
+  java-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Exact public compiler tree and source blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= -c http.extraHeader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.java.git 6482d069205ee537b224123280a8c4a725db60d4
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = 6482d069205ee537b224123280a8c4a725db60d4
+          test "$(git -C source write-tree)" = "$(git -C source rev-parse HEAD^{tree})"
+          git -C source diff --exit-code
+          git -C source fsck --full
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/PersistentPrimitiveClassfileSession.java)" = bab2ec306448eced7848014b6e010d10de7507fc
+          test "$(git -C source hash-object src/test/java/dev/oreslang/compiler/PersistentClassfileCacheTest.java)" = a4aba7dd3559b5fffe5dc89c574067ccf19f3921
+          test "$(git -C source hash-object src/main/java/dev/oreslang/compiler/CheckedI64ProviderClassfile.java)" = c4c0c14aec6a3f9d0dc027897d1946b9d475bca4
+          test "$(git -C source hash-object src/test/java/dev/oreslang/compiler/CheckedI64ProviderCacheTest.java)" = 2c34f4daff5e73ef1414a48015175b81c828de05
+          echo "EXACT_JAVA_HEAD|$(git -C source rev-parse HEAD)|$(git -C source rev-parse HEAD^{tree})"
+      - name: Actual checked compiler, process restart and namespace regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          cd source
+          java -version
+          mvn -B -Dtest=CheckedI64ProviderCacheTest,PersistentClassfileCacheTest,PinnedNamespaceInventoryTest,IncrementalPackageLayoutIsolationTest,PackageNamespaceImportSyntaxTest -Dsurefire.failIfNoSpecifiedTests=true test | tee /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_PROVIDER|' /tmp/java-bound.log
+          grep -F 'JAVA_I32_BOUND_CHILD|' /tmp/java-bound.log
+          grep -F 'JAVA_I64_BOUND_PROVIDER|' /tmp/java-bound.log
+          grep -F 'JAVA_I64_BOUND_CHILD|' /tmp/java-bound.log
+          grep -F 'BUILD SUCCESS' /tmp/java-bound.log
+          git diff --exit-code
