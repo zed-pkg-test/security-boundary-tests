@@ -1,0 +1,159 @@
+name: Runtime parity - integrated main and actual guest boundaries
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-guest-wave-20261126.yml']
+permissions: {}
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - scope: java-guest
+            backend: java
+            head: 'd0972f93a788b09f1491f8425a3d8465d5f9a7b3'
+            tree: '4b154fb73d38db3d0aee1af8411d09fda0ba4915'
+          - scope: rs-guest
+            backend: rs
+            head: 'd668d824450050804f03be322b5769f6b66768c5'
+            tree: '9b4a9e2839ac64ac091035b87982cfbad2ae5f61'
+          - scope: net-reactor
+            backend: net
+            head: '43fca53c958a341bf770efd4888d5501f65cb990'
+            tree: 'd5a3f3f411702482475c882da604867dd130ebf8'
+          - scope: net-runtime
+            backend: net
+            head: 'aa8e15e1d929705b7ed5a12c26cd4c2e0b4c3c50'
+            tree: '314b4e7c3fce3bddc526fa82e56bec1d30c2e6ba'
+          - scope: forge-integrated
+            backend: forge
+            head: '2d43745d63d3425da698f27facd417aa8fcab406'
+            tree: '5d83dcd0e9205666bde6c5555c2e7a9452ac00ce'
+          - scope: js-guest
+            backend: js
+            head: '0cad049d52a49b6d586a6db6637c794cb699b124'
+            tree: '4d3591dc36f526d4da764b5b47f5c2ed5c29c292'
+          - scope: wasm-frames
+            backend: wasm
+            head: 'a882bbfcc2b5135dcb3594a18a1ef47617d122a9'
+            tree: '0abf97bf7ef89256f9922c506ce282cd9149f2d2'
+          - scope: llvm-epoll
+            backend: llvm
+            head: 'e89788544a67314866ca360ddbc9918cdef5cc7c'
+            tree: '53ae8200fa6f4eaecd24bc7eba60cda0a0405a2d'
+          - scope: cranelift-admission
+            backend: cranelift
+            head: 'fa4e4980e0c7ea710ee0b32e7f6762f7bf2cb559'
+            tree: '2e191982a19dfcec969ffa0d74e242356801b8ce'
+          - scope: atto-admission
+            backend: atto
+            head: 'c9f9b2164f4f33b4d394d21de3c7de507a6061c1'
+            tree: 'd24b80ad91f7ab325610d6dae660e0636842a652'
+          - scope: hdl-admission
+            backend: hdl
+            head: '2c88461f3056b3e8065681a10c49a5965c2fe867'
+            tree: 'dfde9b4ffb826a84525089365563cceccd4d9206'
+          - scope: realtime-admission
+            backend: realtime
+            head: '582bcfcdc19f1e5d213cc357a52081507d08d6ff'
+            tree: '752cc34bf5086abc55f189a615b3cf2b602839d9'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Verify public immutable source head tree and index
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Run scoped guest or host boundary tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            java-guest)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              TESTS='AttoAsyncNioActorGuestTest,AttoNioReactorStressGuestTest,ActorLogicalStackOverflowTest,ContinuationCarrierGuestTest,SuspendsAwaitExecutionContextGuestTest,ActorCodeIsolationAttoGuestTest'
+              mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              IFS=, read -ra classes <<< "$TESTS"
+              for class in "${classes[@]}"; do
+                report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+                test -n "$report"
+                grep -Eq 'tests="[1-9][0-9]*"' "$report"
+                grep -Eq 'failures="0"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+              done
+              ;;
+            rs-guest)
+              cargo test --locked --lib --test actor_arena_contract --test actor_std_native_guest --test core_future_ownership
+              cargo build --locked --release --bin attoc
+              node --test tests/actor-stdlib-guest.test.mjs
+              ;;
+            net-reactor)
+              dotnet build runtime-experiment/SharedReactorPoolCheck.csproj -c Release
+              for i in 1 2 3; do dotnet run --no-build --project runtime-experiment/SharedReactorPoolCheck.csproj -c Release; done
+              ;;
+            net-runtime)
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release
+              dotnet run --project verification/Atto.Net.ActorRuntime.Tests/Atto.Net.ActorRuntime.Tests.csproj -c Release
+              ;;
+            forge-integrated)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/reactor
+              for i in 1 2 3; do timeout 30 /tmp/reactor; done
+              cmake -S . -B /tmp/forge-build -DBUILD_TESTING=ON
+              cmake --build /tmp/forge-build --target proxy_mailbox_ticket_v1_test --parallel 2
+              ctest --test-dir /tmp/forge-build -R '^proxy_mailbox_ticket_v1_test$' --output-on-failure --no-tests=error
+              ;;
+            js-guest)
+              node --test tests/proxy-mailbox-terminal-order.test.mjs tests/counted-select-ready-guest.test.mjs
+              npm run test:workers
+              google-chrome --version
+              CHROME_BIN=google-chrome npm run test:browser
+              ;;
+            wasm-frames)
+              node --test tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-arena-quota-parity.test.mjs tests/pinned-continuation-gate.test.mjs tests/actor-io-adversarial-stress.test.mjs tests/proxy-mailbox-terminal-order.test.mjs
+              ;;
+            llvm-epoll)
+              for unit in NativeExecutionContextStore NativeContinuationStore NativeAwaitTraceBridge; do
+                gcc -std=gnu11 -O1 -Wall -Wextra -Wpedantic -Werror -UNDEBUG -pthread -Isrc/main/cpp -c "src/main/cpp/oreslang/runtime/$unit.c" -o "/tmp/$unit.o"
+              done
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -Isrc/main/cpp tests/async_io_epoll_continuation_test.cpp /tmp/NativeExecutionContextStore.o /tmp/NativeContinuationStore.o /tmp/NativeAwaitTraceBridge.o -o /tmp/epoll
+              for i in $(seq 1 20); do timeout 60 /tmp/epoll; done
+              echo 'EPOLL_20_EXECUTIONS_PASS'
+              ;;
+            cranelift-admission)
+              cargo test --locked actor_isolation_access_v1 -- --nocapture 2>&1 | tee "$RUNNER_TEMP/cranelift.log"
+              grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$RUNNER_TEMP/cranelift.log"
+              cargo test --locked --test continuation_admission --test actor_lifecycle_ready_native_denial
+              ;;
+            atto-admission)
+              node --test tests/hybrid-actor-memory-bootstrap-v1.test.mjs
+              ;;
+            hdl-admission)
+              node --test tests/counted-select-admission.test.mjs tests/actor-isolation-access-v1.test.mjs tests/execution-domain-admission.test.mjs tests/actor-future-source.test.mjs
+              ;;
+            realtime-admission)
+              node --test tests/hybrid-actor-memory-realtime-admission.test.mjs
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
