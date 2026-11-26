@@ -1,0 +1,133 @@
+name: Atto eight-backend runtime evidence wave
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-runtime-parity-20261126.yml']
+permissions: {}
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - scope: java-nio
+            backend: java
+            head: 'a3c0ad90f50b3ff26d40c7c5bad733730ffff948'
+            tree: '5062b3d3be022df042c8d9f45d393e9d3591e0de'
+          - scope: java-control
+            backend: java
+            head: '7dbae41c691c8d7e523813a632ddd9c87a9eb04f'
+            tree: '426d912f00c41b0fadae1ec644184d87331c2323'
+          - scope: rs-integrated
+            backend: rs
+            head: '76b1ad8776e82cec930a940aa01907e10415cf48'
+            tree: '604a0ebe7fb9c69f0c381f36e81770509a8f4c73'
+          - scope: js
+            backend: js
+            head: '7f9657e2154a1fbb33325fea014dd3fec6c03cca'
+            tree: 'ff9d71deb7dcf32bbc9313947ff5dcb02bd39054'
+          - scope: wasm
+            backend: wasm
+            head: 'bfb889c2fb39f78b783baae9c32fa6e1780ba6f8'
+            tree: '7aa2de2adfd8aae83b737e30b95844970f4def85'
+          - scope: forge
+            backend: forge
+            head: 'de70b16525e5087b9347101056cfdf81bb41d8f0'
+            tree: '29520ce96679b19c05b908244ed092a677f21da3'
+          - scope: llvm
+            backend: llvm
+            head: 'd6bf31ced36f9eb84a755fe5c29ffc0de7032ca7'
+            tree: '3a6b9cef584a7bfb495fbbc552677f63d1efdff1'
+          - scope: net
+            backend: net
+            head: '0e50d55349118cda55a962eb305affd1eb05feca'
+            tree: '0b2f53b6d540d2555f92fb8d0d72838207234441'
+          - scope: cranelift
+            backend: cranelift
+            head: '77b5e361adbff2d254df7aacd157409b5bd67625'
+            tree: '4ea41e155570e1c871994a6c88c04d342a74cd06'
+    env:
+      SCOPE: ${{ matrix.scope }}
+      BACKEND: ${{ matrix.backend }}
+      HEAD_SHA: ${{ matrix.head }}
+      TREE_SHA: ${{ matrix.tree }}
+    steps:
+      - name: Authenticate exact public source tree without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 "https://github.com/atto-lang/atto-source.$BACKEND.git" "$HEAD_SHA"
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$HEAD_SHA"
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = "$TREE_SHA"
+          test "$(git -C source write-tree)" = "$TREE_SHA"
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+          echo "EXACT_HEAD_TREE|$SCOPE|$HEAD_SHA|$TREE_SHA"
+      - name: Execute scoped runtime or static admission tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          case "$SCOPE" in
+            java-*)
+              export JAVA_HOME="$JAVA_HOME_21_X64"
+              export PATH="$JAVA_HOME/bin:$PATH"
+              if [[ "$SCOPE" == java-nio ]]; then
+                TESTS='NioReadinessGroupTest,OresVMNioReadinessLifecycleTest,OresSchedulerTest,OresSchedulerContinuationLocalityTest,OresSchedulerCancelCloseRaceTest,ActorExecutionContextTest,ActorHeapIncarnationTest,ActorHeapPlacementGuardTest,LogicalStackQuotaTest,ActorSupervisorControlConservationTest'
+              else
+                TESTS='ActorSupervisorControlAtomicTransferTest,ActorSupervisorControlConservationTest,ActorSupervisorControlCounterSaturationTest'
+              fi
+              mvn -B -ntp -Dtest="$TESTS" -DfailIfNoTests=true -Dsurefire.failIfNoSpecifiedTests=true test
+              IFS=, read -ra classes <<< "$TESTS"
+              for class in "${classes[@]}"; do
+                report="$(find target/surefire-reports -name "TEST-*.${class}.xml" -print -quit)"
+                test -n "$report"
+                grep -Eq 'tests="[1-9][0-9]*"' "$report"
+                grep -Eq 'failures="0"' "$report"
+                grep -Eq 'errors="0"' "$report"
+                grep -Eq 'skipped="0"' "$report"
+                grep '<testsuite ' "$report"
+              done
+              ;;
+            rs-integrated)
+              cargo test --locked --lib 2>&1 | tee "$RUNNER_TEMP/rs.log"
+              test "$(grep -Ec 'actor_stack_bound::.* \.\.\. ok' "$RUNNER_TEMP/rs.log")" -ge 10
+              ;;
+            js)
+              node --version
+              npm run test:workers
+              google-chrome --version
+              CHROME_BIN=google-chrome npm run test:browser
+              ;;
+            wasm)
+              node --test tests/pooled-actor-frame-bridge.test.mjs tests/actor-arena*.test.mjs
+              ;;
+            forge)
+              g++ -std=c++17 -O1 -pthread -Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Iruntime verification/shared_reactor_pool_test.cpp -o /tmp/shared-reactor-check
+              timeout 30 /tmp/shared-reactor-check
+              ;;
+            llvm)
+              g++ -std=c++17 -Wall -Wextra -Wpedantic -Werror -UNDEBUG -Isrc/main/cpp tests/native_actor_execution_ledger_test.cpp -o /tmp/ledger
+              timeout 20 /tmp/ledger
+              gcc -std=gnu11 -pthread -Isrc/main/cpp -c src/main/cpp/oreslang/runtime/NativeActorScheduler.c -o /tmp/scheduler.o
+              g++ -std=c++17 -pthread -Wall -Wextra -Wpedantic -Werror -UNDEBUG -Isrc/main/cpp tests/native_actor_ledger_scheduler_bridge_test.cpp /tmp/scheduler.o -o /tmp/ledger-bridge
+              timeout 25 /tmp/ledger-bridge
+              ;;
+            net)
+              dotnet --list-sdks
+              dotnet run --project verification/Ores.Net.Tests/Ores.Net.Tests.csproj -c Release
+              ;;
+            cranelift)
+              cargo test --locked actor_isolation_access_v1 -- --nocapture 2>&1 | tee "$RUNNER_TEMP/cranelift.log"
+              grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed;' "$RUNNER_TEMP/cranelift.log"
+              ;;
+          esac
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo "SCOPED_TEST_PASS|$SCOPE|$HEAD_SHA|$TREE_SHA"
