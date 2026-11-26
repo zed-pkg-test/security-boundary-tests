@@ -1,0 +1,34 @@
+name: Rust dynamic select prelude reserved identifier replay
+on:
+  push:
+    branches: [validation/atto-runtime-java-rs-20261126]
+    paths: ['.github/workflows/atto-rs-dynamic-select-replay-20261126.yml']
+permissions: {}
+jobs:
+  guest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Authenticate exact Rust tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          git init source
+          git -C source -c credential.helper= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.rs.git ed956eb08a5ffcdc58e407757cc2b4559d3f1caa
+          git -C source checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = ed956eb08a5ffcdc58e407757cc2b4559d3f1caa
+          test "$(git -C source rev-parse 'HEAD^{tree}')" = d9fb1deb04ff16eada5e896156cb2b633c58b520
+          test "$(git -C source write-tree)" = d9fb1deb04ff16eada5e896156cb2b633c58b520
+          git -C source fsck --full
+          test -z "$(git -C source status --porcelain)"
+      - name: Compile real guest and execute full dynamic select suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          cargo build --locked --bin attoc
+          node tests/node-v2-select-plans-guest.mjs
+          git diff --exit-code
+          git diff --cached --exit-code
+          echo 'EXACT_GUEST_PASS ed956eb08a5ffcdc58e407757cc2b4559d3f1caa d9fb1deb04ff16eada5e896156cb2b633c58b520'
